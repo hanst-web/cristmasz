@@ -877,10 +877,9 @@ const TopStar = ({ state, onClick, isLit }: { state: 'CHAOS' | 'FORMED', onClick
     if (materialRef.current) {
       const time = stateObj.clock.elapsedTime;
       if (isLit) {
-        // 点亮时：强烈闪耀
-        const intensity = 2.5 + Math.sin(time * 5) * 1.0;
-        materialRef.current.emissiveIntensity = intensity;
-        materialRef.current.color.setHSL(0.12, 1.0, 0.6 + Math.sin(time * 3) * 0.1);
+        // 点亮时：恒定高亮，去除脉冲闪烁
+        materialRef.current.emissiveIntensity = 3.0;
+        materialRef.current.color.setHex(0xFFD700);
       } else {
         // 未点亮时：柔和发光
         materialRef.current.emissiveIntensity = 0.5;
