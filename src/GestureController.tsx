@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { GestureRecognizer, FilesetResolver, DrawingUtils } from "@mediapipe/tasks-vision";
 import { FEATURE_FLAGS } from './waline-config';
 
@@ -23,7 +23,6 @@ export const GestureController = ({
   const requestRef = useRef<number>(0);
   const pinchActiveRef = useRef(false);
   const pinchBlockUntilRef = useRef(0);
-  const [isInitialized, setIsInitialized] = useState(false);
 
   // 初始化 AI 模型
   useEffect(() => {
@@ -104,7 +103,6 @@ export const GestureController = ({
           if (videoRef.current) {
             videoRef.current.play();
             onStatus("AI READY: SHOW HAND");
-            setIsInitialized(true);
             predictWebcam();
           }
         };

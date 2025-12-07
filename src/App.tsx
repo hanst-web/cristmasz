@@ -859,15 +859,17 @@ const TopStar = ({ state, onClick, isLit }: { state: 'CHAOS' | 'FORMED', onClick
   }, []);
 
   const starGeometry = useMemo(() => {
-    return new THREE.ExtrudeGeometry(starShape, {
-      depth: 0.4,
-      bevelEnabled: true, bevelThickness: 0.1, bevelSize: 0.1, bevelSegments: 3,
+    const geom = new THREE.ExtrudeGeometry(starShape, {
+      depth: 0.6,
+      bevelEnabled: true, bevelThickness: 0.2, bevelSize: 0.15, bevelSegments: 5,
     });
+    geom.center();
+    return geom;
   }, [starShape]);
 
   useFrame((stateObj, delta) => {
     if (groupRef.current) {
-      groupRef.current.rotation.y += delta * 0.5;
+      groupRef.current.rotation.y += delta * 0.8;
       const targetScale = state === 'FORMED' ? 1 : 0;
       groupRef.current.scale.lerp(new THREE.Vector3(targetScale, targetScale, targetScale), delta * 3);
     }
@@ -875,19 +877,21 @@ const TopStar = ({ state, onClick, isLit }: { state: 'CHAOS' | 'FORMED', onClick
     if (materialRef.current) {
       const time = stateObj.clock.elapsedTime;
       if (isLit) {
-        // 点亮时：闪耀效果
-        const intensity = 2 + Math.sin(time * 4) * 0.8;
+        // 点亮时：强烈闪耀
+        const intensity = 2.5 + Math.sin(time * 5) * 1.0;
         materialRef.current.emissiveIntensity = intensity;
+        materialRef.current.color.setHSL(0.12, 1.0, 0.6 + Math.sin(time * 3) * 0.1);
       } else {
         // 未点亮时：柔和发光
-        materialRef.current.emissiveIntensity = 0.6;
+        materialRef.current.emissiveIntensity = 0.5;
+        materialRef.current.color.setHex(0xFFD700);
       }
     }
   });
 
   return (
-    <group ref={groupRef} position={[0, CONFIG.tree.height / 2 + 1.8, 0]}>
-      <Float speed={2} rotationIntensity={0.2} floatIntensity={0.2}>
+    <group ref={groupRef} position={[0, CONFIG.tree.height / 2 + 1.5, 0]}>
+      <Float speed={3} rotationIntensity={0.4} floatIntensity={0.4}>
         <mesh
           geometry={starGeometry}
           onPointerDown={(e) => {
@@ -897,13 +901,21 @@ const TopStar = ({ state, onClick, isLit }: { state: 'CHAOS' | 'FORMED', onClick
         >
           <meshStandardMaterial
             ref={materialRef}
-            color={CONFIG.colors.gold}
-            emissive={CONFIG.colors.gold}
-            emissiveIntensity={isLit ? 2 : 0.6}
+            color="#FFD700"
+            emissive="#FF8C00"
             roughness={0.1}
-            metalness={1.0}
+            metalness={0.9}
+            envMapIntensity={2}
           />
         </mesh>
+
+        {/* 外部光晕装饰 */}
+        {isLit && (
+          <>
+            <pointLight color="#FFD700" intensity={3} distance={15} decay={2} />
+            <Sparkles count={20} scale={4} size={4} speed={0.4} opacity={0.5} color="#FFF" />
+          </>
+        )}
       </Float>
     </group>
   );
