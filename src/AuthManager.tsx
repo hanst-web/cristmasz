@@ -31,9 +31,7 @@ export const AuthManager = ({ onClose }: AuthManagerProps) => {
           '//unpkg.com/@waline/emojis@1.2.0/bilibili',
         ],
         imageUploader: true,
-        search: {
-          search: 'https://tenor.googleapis.com/v2/search?key=AIzaSyAyOtn9wH_v2FhZvfS6oqFMDl9H7UR9_sE&q={{keyword}}&limit=20',
-        } as any, // 启用 GIF 搜索
+        search: true, // 启用搜索功能（包括 GIF）
       });
 
       console.log('📋 已初始化 Waline 评论管理器（原生登录模式）');
