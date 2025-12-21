@@ -8,46 +8,65 @@
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; touch-action: none; }
         #start-screen { position: absolute; width: 100%; height: 100%; background: rgba(0,0,0,0.95); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; color: white; }
-        button { padding: 15px 40px; cursor: pointer; background: #b71c1c; color: white; border: 2px solid #ffd700; border-radius: 50px; font-weight: bold; font-size: 1.1rem; }
-        #ui-guide { position: absolute; bottom: 20px; width: 100%; text-align: center; color: white; z-index: 10; display: none; }
-        #status-tag { position: absolute; top: 20px; width: 100%; text-align: center; color: gold; font-weight: bold; z-index: 20; }
+        button { padding: 15px 40px; cursor: pointer; background: #b71c1c; color: white; border: 2px solid #ffd700; border-radius: 50px; font-weight: bold; font-size: 1.1rem; transition: 0.3s; box-shadow: 0 0 15px rgba(255,215,0,0.3); }
+        button:hover { transform: scale(1.05); background: #d32f2f; box-shadow: 0 0 25px rgba(255,215,0,0.5); }
+        #ui-guide { position: absolute; bottom: 20px; width: 100%; text-align: center; color: white; z-index: 10; display: none; pointer-events: none; }
+        #status-tag { position: absolute; top: 20px; width: 100%; text-align: center; color: gold; font-weight: bold; z-index: 20; text-shadow: 0 0 10px black; }
+        .glow-hint { font-size: 12px; color: #aaa; margin-top: 5px; }
     </style>
 </head>
 <body>
 
     <div id="start-screen">
         <h1 style="color: gold; text-shadow: 0 0 15px gold;">GIÁNG SINH KỶ NIỆM 2025</h1>
-        <button id="startBtn">BẮT ĐẦU</button>
+        <button id="startBtn">BẮT ĐẦU TRÌNH CHIẾU</button>
+        <p class="glow-hint">Mỗi ảnh xuất hiện 1 giây • Nhạc sẽ tự động phát</p>
     </div>
 
     <div id="status-tag"></div>
-    <div id="ui-guide">✨ XOAY ĐỂ KHÁM PHÁ | ⭐ NHẤN ĐÚP SAO ĐỂ NỔ | 🖼️ CHẠM ẢNH ĐỂ XEM</div>
+    <div id="ui-guide">✨ XOAY ĐỂ KHÁM PHÁ | ⭐ NHẤN ĐÚP SAO ĐỂ NỔ | 🖼️ CHẠM ẢNH ĐỂ XEM LẠI</div>
     <div id="container"></div>
 
     <audio id="music" loop><source src="audio.mp3" type="audio/mpeg"></audio>
 
     <script>
-        let scene, camera, renderer, star, magicDust;
+        let scene, camera, renderer, star, magicDust, photoGlow;
         let photoMeshes = [];
         let isIntroFinished = false, isExploded = false, focusedMesh = null;
         let introActiveIndex = -1;
         let targetRotationY = 0, isDragging = false, previousMouseX = 0;
 
-        const totalPhotos = 40; // Đã cập nhật theo danh sách file của bạn
-        const introDuration = 30000; 
+        // Danh sách file chính xác từ GitHub của bạn
+        const photoFiles = [];
+        for(let i=1; i<=31; i++) photoFiles.push(`${i}.jpg`);
+        photoFiles.push('top.jpg'); 
+
+        const totalPhotos = photoFiles.length; 
+        const timePerPhoto = 1000; // 1 giây mỗi ảnh
 
         function init() {
             scene = new THREE.Scene();
             camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 1, 2000);
-            camera.position.set(0, 10, 400);
+            camera.position.set(0, 10, 420);
 
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             document.getElementById('container').appendChild(renderer.domElement);
 
-            scene.add(new THREE.AmbientLight(0xffffff, 1.3));
+            scene.add(new THREE.AmbientLight(0xffffff, 1.4));
             
+            // Tạo hiệu ứng tỏa sáng sau lưng ảnh (Glow)
+            const glowGeo = new THREE.PlaneGeometry(35, 45);
+            const glowMat = new THREE.MeshBasicMaterial({
+                color: 0xffd700,
+                transparent: true,
+                opacity: 0,
+                side: THREE.DoubleSide
+            });
+            photoGlow = new THREE.Mesh(glowGeo, glowMat);
+            scene.add(photoGlow);
+
             createStar();
             createDust();
             loadPhotos();
@@ -74,41 +93,39 @@
             }
             const geo = new THREE.ExtrudeGeometry(shape, {depth: 4, bevelEnabled: true});
             star = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({color: 0xFFD700, emissive: 0xFFD700, emissiveIntensity: 0.5}));
-            star.position.y = 120;
+            star.position.y = 125;
             scene.add(star);
         }
 
         function createDust() {
             const geo = new THREE.BufferGeometry();
             const pos = [];
-            for(let i=0; i<4000; i++) pos.push((Math.random()-0.5)*1200, (Math.random()-0.5)*1200, (Math.random()-0.5)*1200);
+            for(let i=0; i<4000; i++) pos.push((Math.random()-0.5)*1300, (Math.random()-0.5)*1300, (Math.random()-0.5)*1300);
             geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-            magicDust = new THREE.Points(geo, new THREE.PointsMaterial({color: 0xFFD700, size: 1.2, transparent: true, opacity: 0.5}));
+            magicDust = new THREE.Points(geo, new THREE.PointsMaterial({color: 0xFFD700, size: 1.2, transparent: true, opacity: 0.4}));
             scene.add(magicDust);
         }
 
         function loadPhotos() {
             const loader = new THREE.TextureLoader();
-            for (let i = 1; i <= totalPhotos; i++) {
-                const texture = loader.load(`public/photos/${i}.jpg`);
-                // Mesh chỉ gồm ảnh, không viền
+            photoFiles.forEach((fileName, i) => {
+                const texture = loader.load(`public/photos/${fileName}`);
                 const mat = new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0, side: THREE.DoubleSide });
-                const mesh = new THREE.Mesh(new THREE.PlaneGeometry(24, 30), mat);
+                const mesh = new THREE.Mesh(new THREE.PlaneGeometry(25, 32), mat);
                 
                 const t = i/totalPhotos;
-                const a = i * 0.8; 
-                const r = t * 100;
-                mesh.userData.treePos = new THREE.Vector3(Math.cos(a)*r, (1-t)*200 - 100, Math.sin(a)*r);
-                mesh.userData.explodePos = new THREE.Vector3((Math.random()-0.5)*700, (Math.random()-0.5)*700, (Math.random()-0.5)*700);
+                const a = i * 0.82; 
+                const r = t * 105;
+                mesh.userData.treePos = new THREE.Vector3(Math.cos(a)*r, (1-t)*210 - 105, Math.sin(a)*r);
+                mesh.userData.explodePos = new THREE.Vector3((Math.random()-0.5)*750, (Math.random()-0.5)*750, (Math.random()-0.5)*750);
                 mesh.position.copy(mesh.userData.treePos);
                 
                 photoMeshes.push(mesh);
                 scene.add(mesh);
-            }
+            });
         }
 
         function startIntro() {
-            const timePerPhoto = introDuration / totalPhotos;
             let count = 0;
             const status = document.getElementById('status-tag');
             
@@ -122,7 +139,7 @@
                     return;
                 }
                 introActiveIndex = count;
-                status.innerText = `🌟 ĐANG TRÌNH CHIẾU: KỶ NIỆM ${count + 1}`;
+                status.innerText = `🎞️ KỶ NIỆM ${count + 1} / ${totalPhotos}`;
                 count++;
             }, timePerPhoto);
         }
@@ -163,24 +180,27 @@
             magicDust.rotation.y += 0.0002;
             scene.rotation.y += (targetRotationY - scene.rotation.y) * 0.1;
 
+            photoGlow.opacity = 0; // Mặc định ẩn glow
+
             photoMeshes.forEach((mesh, idx) => {
                 const isSelected = (idx === introActiveIndex) || (mesh === focusedMesh);
                 
                 if(isSelected) {
-                    // CĂN GIỮA MÀN HÌNH & PHẲNG NHƯ ẢNH 2D
-                    // Tính toán vị trí cách camera một khoảng cố định
-                    const viewDist = window.innerWidth < 600 ? 150 : 220; 
+                    const viewDist = window.innerWidth < 600 ? 150 : 230; 
                     const centerPos = new THREE.Vector3(0, 0, viewDist).applyQuaternion(camera.quaternion);
                     const localPos = scene.worldToLocal(centerPos.add(camera.position));
                     
                     mesh.position.lerp(localPos, 0.12);
-                    // Phóng to ảnh để nhìn rõ chi tiết
-                    mesh.scale.lerp(new THREE.Vector3(5, 5, 1), 0.12); 
-                    
-                    // FLATTEN: Triệt tiêu mọi góc nghiêng, ép ảnh song song với màn hình
+                    mesh.scale.lerp(new THREE.Vector3(5.5, 5.5, 1), 0.12); 
                     mesh.quaternion.copy(camera.quaternion).premultiply(scene.quaternion.clone().invert());
-                    
                     mesh.material.opacity = 1;
+
+                    // Hiệu ứng Glow lấp lánh phía sau ảnh
+                    photoGlow.position.copy(mesh.position);
+                    photoGlow.quaternion.copy(mesh.quaternion);
+                    photoGlow.position.z -= 1; // Nằm sau ảnh
+                    photoGlow.scale.set(mesh.scale.x * 1.1, mesh.scale.y * 1.1, 1);
+                    photoGlow.material.opacity = 0.3 + Math.sin(Date.now() * 0.005) * 0.15;
                 } else {
                     const target = (isIntroFinished && isExploded) ? mesh.userData.explodePos : mesh.userData.treePos;
                     mesh.position.lerp(target, 0.07);
@@ -188,7 +208,6 @@
                     
                     if(!isExploded) mesh.lookAt(0, mesh.position.y, 0);
                     
-                    // Ảnh không được chọn sẽ mờ đi để làm nổi bật ảnh chính
                     const baseOpacity = isIntroFinished ? (isExploded ? 1 : 0.25) : 0;
                     mesh.material.opacity += (baseOpacity - mesh.material.opacity) * 0.1;
                 }
