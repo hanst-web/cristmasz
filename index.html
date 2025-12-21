@@ -1,9 +1,17 @@
+Dựa trên hình ảnh cấu trúc thư mục của bạn, lỗi lớn nhất khiến ảnh không hiện là do đường dẫn. Trong GitHub, thư mục public thường được đối xử đặc biệt; khi bạn đưa lên GitHub Pages, đôi khi nó yêu cầu đường dẫn trực tiếp từ gốc.
+
+Dưới đây là mã nguồn hoàn chỉnh nhất, đã được tôi sửa lại đường dẫn để "quét" ảnh ở cả hai vị trí (có public và không có public) để đảm bảo ảnh chắc chắn phải hiện lên.
+
+Bạn hãy copy toàn bộ và dán đè vào file index.html của bạn:
+
+HTML
+
 <!DOCTYPE html>
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Christmas Tree 3D Zoom</title>
+    <title>Christmas Tree 3D - TikTok Style</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
@@ -13,24 +21,27 @@
             display: flex; 
             justify-content: center; 
             align-items: center; 
-            perspective: 1500px; /* Tạo chiều sâu cho camera */
+            perspective: 1500px;
             font-family: 'Arial', sans-serif;
         }
 
-        /* Sân khấu 3D */
+        /* Hiệu ứng mờ ảo lúc bắt đầu */
+        #overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); z-index: 10000;
+            display: flex; justify-content: center; align-items: center;
+            transition: opacity 1s;
+        }
+
         .scene {
-            width: 100%;
-            height: 100%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            width: 100%; height: 100%;
+            display: flex; justify-content: center; align-items: center;
             transform-style: preserve-3d;
-            transition: transform 1.5s cubic-bezier(0.4, 0, 0.2, 1); /* Hiệu ứng zoom camera */
+            transition: transform 1.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         .tree {
-            position: relative;
-            width: 0; height: 0;
+            position: relative; width: 0; height: 0;
             transform-style: preserve-3d;
             animation: rotate 20s infinite linear;
         }
@@ -42,68 +53,46 @@
 
         /* Ảnh đỉnh top.jpg */
         .star-photo {
-            position: absolute;
-            width: 120px; height: 120px;
-            top: -220px; left: -60px;
-            border-radius: 50%;
-            border: 5px solid gold;
-            box-shadow: 0 0 30px gold;
-            object-fit: cover;
-            transform: translateZ(0);
+            position: absolute; width: 100px; height: 100px;
+            top: -250px; left: -50px;
+            border-radius: 50%; border: 4px solid gold;
+            box-shadow: 0 0 30px gold; object-fit: cover;
         }
 
         /* 31 tấm ảnh lá */
         .leaf-photo {
-            position: absolute;
-            width: 80px; height: 110px;
-            border: 3px solid white;
-            border-radius: 8px;
-            object-fit: cover;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
-            backface-visibility: visible;
-            transition: transform 0.5s;
+            position: absolute; width: 80px; height: 110px;
+            border: 2px solid white; border-radius: 5px;
+            object-fit: cover; box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+            transition: all 0.5s;
         }
 
-        /* Hiệu ứng focus vào 1 ảnh */
         .leaf-photo.focus {
-            border-color: #ff0000;
-            box-shadow: 0 0 30px #ff0000;
+            border: 4px solid #ff0000;
+            box-shadow: 0 0 40px #ff0000;
             z-index: 1000;
+            transform: scale(1.5) !important;
         }
 
         .message {
-            position: fixed;
-            bottom: 30px;
-            color: white;
-            text-align: center;
-            text-shadow: 0 0 10px rgba(255,0,0,0.8);
-            pointer-events: none;
-            transition: opacity 0.5s;
-        }
-
-        #ui-layer {
-            position: fixed;
-            top: 20px; right: 20px;
-            z-index: 9999;
+            position: fixed; bottom: 30px; color: white;
+            text-align: center; text-shadow: 0 0 10px red;
+            z-index: 100;
         }
 
         button {
-            padding: 12px 24px;
-            background: rgba(255,255,255,0.1);
-            color: white;
-            border: 2px solid white;
-            border-radius: 30px;
-            cursor: pointer;
-            backdrop-filter: blur(10px);
+            padding: 15px 30px; font-size: 18px;
+            background: white; color: black; border: none;
+            border-radius: 50px; cursor: pointer; font-weight: bold;
         }
 
-        .snow { position: absolute; top: -10px; color: white; pointer-events: none; z-index: 500; }
+        .snow { position: absolute; top: -10px; color: white; pointer-events: none; }
     </style>
 </head>
 <body>
 
-    <div id="ui-layer">
-        <button id="start-btn">🎄 Nhấn để bắt đầu (Có nhạc) 🎄</button>
+    <div id="overlay">
+        <button id="start-btn">🎄 BẮT ĐẦU TRẢI NGHIỆM 🎄</button>
     </div>
 
     <audio id="bg-audio" loop>
@@ -112,35 +101,39 @@
 
     <div class="scene" id="scene">
         <div class="tree" id="tree-container">
-            <img src="public/photos/top.jpg" class="star-photo">
+            <img src="public/photos/top.jpg" class="star-photo" onerror="this.src='photos/top.jpg'">
         </div>
     </div>
 
-    <div class="message" id="msg">
-        <h1>Merry Christmas 2025</h1>
-        <p>Phóng to từng kỷ niệm của chúng ta...</p>
+    <div class="message">
+        <h2>Merry Christmas 2025</h2>
+        <p>Phóng to những khoảnh khắc tuyệt vời nhất</p>
     </div>
 
     <script>
         const scene = document.getElementById('scene');
         const container = document.getElementById('tree-container');
         const audio = document.getElementById('bg-audio');
-        const btn = document.getElementById('start-btn');
-        const msg = document.getElementById('msg');
+        const startBtn = document.getElementById('start-btn');
+        const overlay = document.getElementById('overlay');
         
         const totalPhotos = 31;
         const photos = [];
 
-        // 1. Tạo cây thông từ 31 ảnh
+        // 1. Tạo cây thông xoáy ốc giống video TikTok
         for (let i = 1; i <= totalPhotos; i++) {
             const img = document.createElement('img');
+            
+            // Thử cả 2 đường dẫn đề phòng lỗi GitHub Pages
             img.src = `public/photos/${i}.jpg`;
+            img.onerror = function() { this.src = `photos/${i}.jpg`; };
+            
             img.className = 'leaf-photo';
             
             const t = i / totalPhotos; 
-            const angle = i * 0.6; 
-            const radius = t * 250 + 50; 
-            const y = t * 450 - 150;
+            const angle = i * 0.7; 
+            const radius = t * 280 + 40; 
+            const y = t * 500 - 150;
             const rotY = (angle * 360) % 360;
 
             img.style.transform = `rotateY(${rotY}deg) translateZ(${radius}px) translateY(${y}px)`;
@@ -149,50 +142,46 @@
             photos.push({ element: img, y: y, angle: rotY, radius: radius });
         }
 
-        // 2. Logic điều khiển Camera (Zoom theo video TikTok)
-        function autoZoom() {
-            // Chọn ngẫu nhiên 1 ảnh để phóng to
+        // 2. Hiệu ứng Zoom Camera như video @binnanee
+        function performZoom() {
             const randomIndex = Math.floor(Math.random() * totalPhotos);
             const target = photos[randomIndex];
 
-            // Highlight ảnh được chọn
+            // Focus ảnh
             photos.forEach(p => p.element.classList.remove('focus'));
             target.element.classList.add('focus');
 
-            // Tính toán để xoay scene ngược lại hướng ảnh để ảnh đối diện camera
-            // Phóng to camera (translateZ) và di chuyển tâm nhìn (translateY)
-            scene.style.transform = `translateZ(600px) translateY(${-target.y}px)`;
-            msg.style.opacity = "0.2";
+            // Camera lao tới (Zoom in)
+            scene.style.transform = `translateZ(700px) translateY(${-target.y}px)`;
 
-            // Sau 3 giây thì zoom out nhìn toàn cảnh
+            // Quay lại toàn cảnh sau 3 giây
             setTimeout(() => {
                 scene.style.transform = `translateZ(0px) translateY(0px)`;
                 target.element.classList.remove('focus');
-                msg.style.opacity = "1";
             }, 3000);
         }
 
-        // Bắt đầu hiệu ứng khi nhấn nút
-        btn.onclick = () => {
-            audio.play();
-            btn.style.display = 'none';
-            // Lặp lại hiệu ứng zoom mỗi 6 giây
-            setInterval(autoZoom, 6000);
-            autoZoom();
+        // 3. Khởi chạy
+        startBtn.onclick = () => {
+            audio.play().catch(() => console.log("Chưa thể phát nhạc"));
+            overlay.style.opacity = '0';
+            setTimeout(() => {
+                overlay.style.display = 'none';
+                setInterval(performZoom, 6000); // Mỗi 6 giây zoom 1 lần
+                performZoom();
+            }, 1000);
         };
 
         // Tuyết rơi
-        function createSnow() {
+        setInterval(() => {
             const snow = document.createElement('div');
             snow.className = 'snow';
             snow.innerHTML = '❄';
             snow.style.left = Math.random() * 100 + 'vw';
-            snow.style.opacity = Math.random();
             document.body.appendChild(snow);
             const anim = snow.animate([{top: '-10px'}, {top: '100vh'}], {duration: Math.random() * 3000 + 2000});
             anim.onfinish = () => snow.remove();
-        }
-        setInterval(createSnow, 100);
+        }, 150);
     </script>
 </body>
 </html>
