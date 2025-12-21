@@ -1,187 +1,176 @@
-Dựa trên hình ảnh cấu trúc thư mục của bạn, lỗi lớn nhất khiến ảnh không hiện là do đường dẫn. Trong GitHub, thư mục public thường được đối xử đặc biệt; khi bạn đưa lên GitHub Pages, đôi khi nó yêu cầu đường dẫn trực tiếp từ gốc.
-
-Dưới đây là mã nguồn hoàn chỉnh nhất, đã được tôi sửa lại đường dẫn để "quét" ảnh ở cả hai vị trí (có public và không có public) để đảm bảo ảnh chắc chắn phải hiện lên.
-
-Bạn hãy copy toàn bộ và dán đè vào file index.html của bạn:
-
-HTML
-
 <!DOCTYPE html>
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Christmas Tree 3D - TikTok Style</title>
+    <title>3D Hand Control Christmas Tree</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
-            background: #000; 
-            height: 100vh; 
-            overflow: hidden; 
-            display: flex; 
-            justify-content: center; 
-            align-items: center; 
-            perspective: 1500px;
-            font-family: 'Arial', sans-serif;
-        }
-
-        /* Hiệu ứng mờ ảo lúc bắt đầu */
-        #overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.9); z-index: 10000;
-            display: flex; justify-content: center; align-items: center;
-            transition: opacity 1s;
-        }
-
-        .scene {
-            width: 100%; height: 100%;
-            display: flex; justify-content: center; align-items: center;
-            transform-style: preserve-3d;
-            transition: transform 1.5s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .tree {
-            position: relative; width: 0; height: 0;
-            transform-style: preserve-3d;
-            animation: rotate 20s infinite linear;
-        }
-
-        @keyframes rotate {
-            from { transform: rotateY(0deg); }
-            to { transform: rotateY(360deg); }
-        }
-
-        /* Ảnh đỉnh top.jpg */
-        .star-photo {
-            position: absolute; width: 100px; height: 100px;
-            top: -250px; left: -50px;
-            border-radius: 50%; border: 4px solid gold;
-            box-shadow: 0 0 30px gold; object-fit: cover;
-        }
-
-        /* 31 tấm ảnh lá */
-        .leaf-photo {
-            position: absolute; width: 80px; height: 110px;
-            border: 2px solid white; border-radius: 5px;
-            object-fit: cover; box-shadow: 0 5px 15px rgba(0,0,0,0.5);
-            transition: all 0.5s;
-        }
-
-        .leaf-photo.focus {
-            border: 4px solid #ff0000;
-            box-shadow: 0 0 40px #ff0000;
-            z-index: 1000;
-            transform: scale(1.5) !important;
-        }
-
-        .message {
-            position: fixed; bottom: 30px; color: white;
-            text-align: center; text-shadow: 0 0 10px red;
-            z-index: 100;
-        }
-
-        button {
-            padding: 15px 30px; font-size: 18px;
-            background: white; color: black; border: none;
-            border-radius: 50px; cursor: pointer; font-weight: bold;
-        }
-
-        .snow { position: absolute; top: -10px; color: white; pointer-events: none; }
+        body { margin: 0; overflow: hidden; background: radial-gradient(circle, #111, #000); font-family: 'Arial', sans-serif; }
+        #container { width: 100%; height: 100vh; }
+        #ui { position: absolute; bottom: 10%; width: 100%; text-align: center; color: white; z-index: 10; }
+        button { padding: 15px 40px; font-size: 18px; cursor: pointer; background: #ff0000; color: white; border: 2px solid gold; border-radius: 50px; box-shadow: 0 0 20px rgba(255,0,0,0.5); }
+        #video-in { position: absolute; top: 10px; right: 10px; width: 160px; height: 120px; border: 2px solid #fff; border-radius: 10px; transform: scaleX(-1); z-index: 5; }
+        .hint { margin-bottom: 15px; font-size: 14px; text-shadow: 0 0 5px black; }
     </style>
 </head>
 <body>
 
-    <div id="overlay">
-        <button id="start-btn">🎄 BẮT ĐẦU TRẢI NGHIỆM 🎄</button>
+    <video id="video-in" autoplay playsinline></video>
+    <div id="container"></div>
+
+    <div id="ui">
+        <div class="hint">🖐 <b>Xòe tay:</b> Nổ tung (Explode) | ✊ <b>Nắm tay:</b> Thu về Cây thông (Tree)</div>
+        <button id="startBtn">BẮT ĐẦU</button>
     </div>
 
-    <audio id="bg-audio" loop>
-        <source src="audio.mp3" type="audio/mpeg">
-    </audio>
-
-    <div class="scene" id="scene">
-        <div class="tree" id="tree-container">
-            <img src="public/photos/top.jpg" class="star-photo" onerror="this.src='photos/top.jpg'">
-        </div>
-    </div>
-
-    <div class="message">
-        <h2>Merry Christmas 2025</h2>
-        <p>Phóng to những khoảnh khắc tuyệt vời nhất</p>
-    </div>
+    <audio id="music" loop src="audio.mp3"></audio>
 
     <script>
-        const scene = document.getElementById('scene');
-        const container = document.getElementById('tree-container');
-        const audio = document.getElementById('bg-audio');
-        const startBtn = document.getElementById('start-btn');
-        const overlay = document.getElementById('overlay');
-        
+        // --- 1. BIẾN CẤU HÌNH ---
+        let scene, camera, renderer, hands, cameraFeed;
+        let photoMeshes = [];
+        let state = 'TREE'; // Mặc định là hình cây thông
+        let handX = 0.5, handY = 0.5;
         const totalPhotos = 31;
-        const photos = [];
+        const loader = new THREE.TextureLoader();
 
-        // 1. Tạo cây thông xoáy ốc giống video TikTok
-        for (let i = 1; i <= totalPhotos; i++) {
-            const img = document.createElement('img');
-            
-            // Thử cả 2 đường dẫn đề phòng lỗi GitHub Pages
-            img.src = `public/photos/${i}.jpg`;
-            img.onerror = function() { this.src = `photos/${i}.jpg`; };
-            
-            img.className = 'leaf-photo';
-            
-            const t = i / totalPhotos; 
-            const angle = i * 0.7; 
-            const radius = t * 280 + 40; 
-            const y = t * 500 - 150;
-            const rotY = (angle * 360) % 360;
+        // --- 2. KHỞI TẠO 3D (THREE.JS) ---
+        function initScene() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 1, 2000);
+            camera.position.z = 200;
 
-            img.style.transform = `rotateY(${rotY}deg) translateZ(${radius}px) translateY(${y}px)`;
-            
-            container.appendChild(img);
-            photos.push({ element: img, y: y, angle: rotY, radius: radius });
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.getElementById('container').appendChild(renderer.domElement);
+
+            // Ánh sáng
+            const light = new THREE.AmbientLight(0xffffff, 1);
+            scene.add(light);
+
+            createForest();
+            animate();
         }
 
-        // 2. Hiệu ứng Zoom Camera như video @binnanee
-        function performZoom() {
-            const randomIndex = Math.floor(Math.random() * totalPhotos);
-            const target = photos[randomIndex];
+        // --- 3. TẠO CÂY THÔNG TỪ 31 ẢNH (DỰA TRÊN CODE BẠN GỬI) ---
+        function createForest() {
+            const geo = new THREE.PlaneGeometry(10, 14);
+            
+            for (let i = 1; i <= totalPhotos; i++) {
+                // Sửa lỗi đường dẫn ảnh GitHub của bạn
+                const path = `public/photos/${i}.jpg`;
+                const tex = loader.load(path, undefined, undefined, () => {
+                    // Dự phòng nếu sai đường dẫn public
+                    mesh.material.map = loader.load(`photos/${i}.jpg`);
+                });
 
-            // Focus ảnh
-            photos.forEach(p => p.element.classList.remove('focus'));
-            target.element.classList.add('focus');
+                const mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, transparent: true });
+                const mesh = new THREE.Mesh(geo, mat);
 
-            // Camera lao tới (Zoom in)
-            scene.style.transform = `translateZ(700px) translateY(${-target.y}px)`;
+                // Tọa độ mục tiêu Cây Thông (Spiral)
+                const t = i / totalPhotos;
+                const angle = i * 0.8;
+                const radius = t * 50;
+                mesh.userData.treePos = new THREE.Vector3(
+                    Math.cos(angle) * radius,
+                    (1 - t) * 100 - 50,
+                    Math.sin(angle) * radius
+                );
 
-            // Quay lại toàn cảnh sau 3 giây
-            setTimeout(() => {
-                scene.style.transform = `translateZ(0px) translateY(0px)`;
-                target.element.classList.remove('focus');
-            }, 3000);
+                // Tọa độ mục tiêu Nổ tung (Explode)
+                mesh.userData.explodePos = new THREE.Vector3(
+                    (Math.random() - 0.5) * 300,
+                    (Math.random() - 0.5) * 300,
+                    (Math.random() - 0.5) * 300
+                );
+
+                mesh.position.copy(mesh.userData.treePos);
+                scene.add(mesh);
+                photoMeshes.push(mesh);
+            }
+
+            // Ảnh đỉnh top.jpg
+            loader.load('public/photos/top.jpg', (t) => {
+                const sGeo = new THREE.CircleGeometry(12, 32);
+                const sMat = new THREE.MeshBasicMaterial({ map: t, side: THREE.DoubleSide });
+                const star = new THREE.Mesh(sGeo, sMat);
+                star.position.y = 65;
+                scene.add(star);
+            });
         }
 
-        // 3. Khởi chạy
-        startBtn.onclick = () => {
-            audio.play().catch(() => console.log("Chưa thể phát nhạc"));
-            overlay.style.opacity = '0';
-            setTimeout(() => {
-                overlay.style.display = 'none';
-                setInterval(performZoom, 6000); // Mỗi 6 giây zoom 1 lần
-                performZoom();
-            }, 1000);
+        // --- 4. NHẬN DIỆN CỬ CHỈ (MEDIAPIPE) ---
+        function initMediaPipe() {
+            hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+            hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5 });
+            hands.onResults(onResults);
+
+            cameraFeed = new Camera(document.getElementById('video-in'), {
+                onFrame: async () => { await hands.send({ image: document.getElementById('video-in') }); },
+                width: 1280, height: 720
+            });
+            cameraFeed.start();
+        }
+
+        function onResults(results) {
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const landmarks = results.multiHandLandmarks[0];
+                
+                // Logic Open/Fist: Khoảng cách ngón tay (như trong code mẫu của bạn)
+                const isFist = landmarks[8].y > landmarks[6].y && landmarks[12].y > landmarks[10].y;
+                
+                state = isFist ? 'TREE' : 'EXPLODE';
+                
+                // Camera di chuyển theo tay (HandX)
+                handX = landmarks[9].x;
+                handY = landmarks[9].y;
+            }
+        }
+
+        // --- 5. VÒNG LẶP HOẠT ẢNH ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Camera di chuyển mượt theo tay người dùng
+            const targetX = (handX - 0.5) * 200;
+            const targetY = (0.5 - handY) * 100;
+            camera.position.x += (targetX - camera.position.x) * 0.05;
+            camera.position.y += (targetY - camera.position.y) * 0.05;
+            camera.lookAt(0, 0, 0);
+
+            // Di chuyển 31 ảnh mượt mà
+            photoMeshes.forEach((mesh, i) => {
+                const target = (state === 'TREE') ? mesh.userData.treePos : mesh.userData.explodePos;
+                mesh.position.lerp(target, 0.08); // Di chuyển mượt (interpolation)
+                
+                if (state === 'TREE') {
+                    mesh.lookAt(0, mesh.position.y, 0);
+                } else {
+                    mesh.rotation.x += 0.02;
+                    mesh.rotation.y += 0.02;
+                }
+            });
+
+            renderer.render(scene, camera);
+        }
+
+        // --- KHỞI CHẠY ---
+        document.getElementById('startBtn').onclick = () => {
+            document.getElementById('music').play();
+            document.getElementById('ui').style.display = 'none';
+            initScene();
+            initMediaPipe();
         };
 
-        // Tuyết rơi
-        setInterval(() => {
-            const snow = document.createElement('div');
-            snow.className = 'snow';
-            snow.innerHTML = '❄';
-            snow.style.left = Math.random() * 100 + 'vw';
-            document.body.appendChild(snow);
-            const anim = snow.animate([{top: '-10px'}, {top: '100vh'}], {duration: Math.random() * 3000 + 2000});
-            anim.onfinish = () => snow.remove();
-        }, 150);
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
     </script>
 </body>
 </html>
