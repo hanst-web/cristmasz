@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Christmas Memory 2025 - Special Edition</title>
+    <title>Christmas 2025 - Pro Version</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
         body { margin: 0; overflow: hidden; background: radial-gradient(circle, #1a1a1a, #000); font-family: sans-serif; touch-action: none; }
         #start-screen { position: absolute; width: 100%; height: 100%; background: rgba(0,0,0,0.95); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; color: white; text-align: center; }
-        button { padding: 18px 45px; font-size: 18px; cursor: pointer; background: #b71c1c; color: white; border: 2px solid #ffd700; border-radius: 50px; font-weight: bold; box-shadow: 0 0 20px rgba(255,215,0,0.4); }
+        button { padding: 18px 45px; cursor: pointer; background: #b71c1c; color: white; border: 2px solid #ffd700; border-radius: 50px; font-weight: bold; box-shadow: 0 0 20px rgba(255,215,0,0.4); }
         #ui-guide { position: absolute; bottom: 5%; width: 100%; text-align: center; color: white; z-index: 10; display: none; }
-        .guide-box { background: rgba(0,0,0,0.7); padding: 10px 25px; border-radius: 30px; border: 1px solid #ffd700; display: inline-block; font-size: 13px; letter-spacing: 1px; }
+        .guide-box { background: rgba(0,0,0,0.7); padding: 10px 25px; border-radius: 30px; border: 1px solid #ffd700; display: inline-block; font-size: 13px; }
         #status-tag { position: absolute; top: 20px; width: 100%; text-align: center; color: gold; font-size: 16px; font-weight: bold; z-index: 20; }
     </style>
 </head>
@@ -18,12 +18,11 @@
 
     <div id="start-screen">
         <h1 style="color: gold; text-shadow: 0 0 15px gold;">GIÁNG SINH KỶ NIỆM 2025</h1>
-        <p style="opacity: 0.7;">Nhấn để bắt đầu hành trình</p>
         <button id="startBtn">BẮT ĐẦU</button>
     </div>
 
     <div id="status-tag"></div>
-    <div id="ui-guide"><div class="guide-box">⭐ NHẤN 2 LẦN VÀO NGÔI SAO ĐỂ NỔ TUNG | CHẠM ẢNH ĐỂ XEM ✨</div></div>
+    <div id="ui-guide"><div class="guide-box">🖱️ KÉO ĐỂ XOAY | ⭐ NHẤN ĐÚP NGÔI SAO ĐỂ NỔ TUNG | ✨ CHẠM ẢNH ĐỂ XEM</div></div>
     <div id="container"></div>
 
     <audio id="music" loop><source src="audio.mp3" type="audio/mpeg"></audio>
@@ -31,17 +30,17 @@
     <script>
         let scene, camera, renderer, magicDust, star;
         let photoMeshes = [];
-        let isIntroFinished = false;
-        let isExploded = false;
-        let focusedMesh = null;
+        let isIntroFinished = false, isExploded = false, focusedMesh = null;
+        let introActiveIndex = -1;
+        let isDragging = false, previousMouseX = 0, targetRotationY = 0;
         const totalPhotos = 31;
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
 
         function initScene() {
             scene = new THREE.Scene();
-            camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 1, 2000);
-            camera.position.set(0, 20, 300);
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 1, 3000);
+            camera.position.set(0, 20, 350);
 
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
@@ -54,8 +53,13 @@
             createMagicDust();
             createForest();
             
+            // Mouse/Touch Events
             window.addEventListener('mousedown', onPointerDown);
+            window.addEventListener('mousemove', onPointerMove);
+            window.addEventListener('mouseup', () => isDragging = false);
             window.addEventListener('touchstart', (e) => onPointerDown(e.touches[0]));
+            window.addEventListener('touchmove', (e) => onPointerMove(e.touches[0]));
+            window.addEventListener('touchend', () => isDragging = false);
             
             startIntroSequence();
             animate();
@@ -63,55 +67,49 @@
 
         function createSharpStar() {
             const shape = new THREE.Shape();
-            const pts = 5, outR = 18, inR = 8;
+            const pts = 5, outR = 22, inR = 10;
             for (let i = 0; i < pts * 2; i++) {
-                const r = i % 2 === 0 ? outR : inR;
+                const r = (i % 2 === 0) ? outR : inR;
                 const a = (i / pts) * Math.PI;
-                const x = Math.cos(a) * r, y = Math.sin(a) * r;
-                if (i === 0) shape.moveTo(x, y); else shape.lineTo(x, y);
+                if (i === 0) shape.moveTo(Math.cos(a)*r, Math.sin(a)*r);
+                else shape.lineTo(Math.cos(a)*r, Math.sin(a)*r);
             }
-            const geometry = new THREE.ExtrudeGeometry(shape, { depth: 4, bevelEnabled: true });
-            const material = new THREE.MeshStandardMaterial({ color: 0xFFD700, metalness: 0.9, roughness: 0.1, emissive: 0xffd700, emissiveIntensity: 0.4 });
+            const geometry = new THREE.ExtrudeGeometry(shape, { depth: 5, bevelEnabled: true });
+            const material = new THREE.MeshStandardMaterial({ 
+                color: 0xFFD700, emissive: 0xFFD700, emissiveIntensity: 0.8 
+            });
             star = new THREE.Mesh(geometry, material);
-            star.position.y = 95;
-            star.name = "GOLD_STAR"; 
+            star.position.y = 100;
             scene.add(star);
         }
 
         function createMagicDust() {
             const geo = new THREE.BufferGeometry();
             const pos = [];
-            for(let i=0; i<4000; i++) pos.push((Math.random()-0.5)*1000, (Math.random()-0.5)*1000, (Math.random()-0.5)*1000);
+            for(let i=0; i<4000; i++) pos.push((Math.random()-0.5)*1200, (Math.random()-0.5)*1200, (Math.random()-0.5)*1200);
             geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-            magicDust = new THREE.Points(geo, new THREE.PointsMaterial({color: 0xFFD700, size: 1.5, transparent: true, opacity: 0.5}));
+            magicDust = new THREE.Points(geo, new THREE.PointsMaterial({color: 0xFFD700, size: 1.5, transparent: true, opacity: 0.6}));
             scene.add(magicDust);
         }
 
         function createForest() {
             const loader = new THREE.TextureLoader();
             const geo = new THREE.PlaneGeometry(18, 24);
-            
             for (let i = 1; i <= totalPhotos; i++) {
                 const mat = new THREE.MeshBasicMaterial({ 
-                    map: loader.load(`public/photos/${i}.jpg`, undefined, undefined, () => { mat.map = loader.load(`photos/${i}.jpg`); }), 
-                    side: THREE.DoubleSide, transparent: true, opacity: 0 
+                    map: loader.load(`public/photos/${i}.jpg`), side: THREE.DoubleSide, transparent: true, opacity: 0 
                 });
-                
                 const mesh = new THREE.Mesh(geo, mat);
-                
-                // Thêm viền ảnh (Border)
-                const borderGeo = new THREE.PlaneGeometry(19, 25);
-                const borderMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, transparent: true, opacity: 0 });
+                const borderGeo = new THREE.PlaneGeometry(21, 27);
+                const borderMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.4, transparent: true, opacity: 0 });
                 const border = new THREE.Mesh(borderGeo, borderMat);
-                border.position.z = -0.1;
+                border.position.z = -0.15;
                 mesh.add(border);
                 mesh.userData.border = border;
 
-                const t = i/31, a = i*0.85, r = t*75;
-                mesh.userData.treePos = new THREE.Vector3(Math.cos(a)*r, (1-t)*150-75, Math.sin(a)*r);
-                mesh.userData.explodePos = new THREE.Vector3((Math.random()-0.5)*500, (Math.random()-0.5)*500, (Math.random()-0.5)*400);
-                mesh.userData.introActive = false;
-                
+                const t = i/31, a = i*0.85, r = t*85;
+                mesh.userData.treePos = new THREE.Vector3(Math.cos(a)*r, (1-t)*160-80, Math.sin(a)*r);
+                mesh.userData.explodePos = new THREE.Vector3((Math.random()-0.5)*600, (Math.random()-0.5)*600, (Math.random()-0.5)*500);
                 mesh.position.copy(mesh.userData.treePos);
                 scene.add(mesh);
                 photoMeshes.push(mesh);
@@ -120,86 +118,86 @@
 
         let lastClickTime = 0;
         function onPointerDown(event) {
-            if (!isIntroFinished) return;
+            isDragging = true;
+            previousMouseX = event.clientX;
             
+            if (!isIntroFinished) return;
             mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
             mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
             raycaster.setFromCamera(mouse, camera);
             
             const intersects = raycaster.intersectObjects(scene.children, true);
-            
             if (intersects.length > 0) {
                 let obj = intersects[0].object;
-                
-                // Kiểm tra click vào Ngôi sao
                 if (obj === star || obj.parent === star) {
-                    const currentTime = Date.now();
-                    if (currentTime - lastClickTime < 300) { // Double click
-                        isExploded = !isExploded;
-                        focusedMesh = null;
-                    }
-                    lastClickTime = currentTime;
-                    return;
-                }
-
-                // Kiểm tra click vào Ảnh (Mesh)
-                let clickedMesh = photoMeshes.find(m => m === obj || m === obj.parent);
-                if (clickedMesh) {
-                    focusedMesh = (focusedMesh === clickedMesh) ? null : clickedMesh;
+                    if (Date.now() - lastClickTime < 300) { isExploded = !isExploded; focusedMesh = null; }
+                    lastClickTime = Date.now();
                 } else {
-                    focusedMesh = null;
+                    let clicked = photoMeshes.find(m => m === obj || m === obj.parent);
+                    focusedMesh = (focusedMesh === clicked) ? null : clicked;
                 }
-            } else {
-                focusedMesh = null;
+            } else { focusedMesh = null; }
+        }
+
+        function onPointerMove(event) {
+            if (isDragging && !focusedMesh) {
+                const deltaX = event.clientX - previousMouseX;
+                targetRotationY += deltaX * 0.005;
+                previousMouseX = event.clientX;
             }
         }
 
         function startIntroSequence() {
-            let timeLeft = 30;
-            const tag = document.getElementById('status-tag');
-            const interval = setInterval(() => {
-                if(timeLeft <= 0) {
-                    clearInterval(interval);
+            const timePerPhoto = 30000 / totalPhotos;
+            let currentI = 0;
+            const introInterval = setInterval(() => {
+                if (currentI >= totalPhotos) {
+                    clearInterval(introInterval);
                     isIntroFinished = true;
-                    tag.style.display = 'none';
+                    introActiveIndex = -1;
+                    document.getElementById('status-tag').style.display = 'none';
                     document.getElementById('ui-guide').style.display = 'block';
                     return;
                 }
-                tag.innerText = `🎞️ ĐANG TRÌNH CHIẾU... (${timeLeft}s)`;
-                const rand = Math.floor(Math.random() * totalPhotos);
-                photoMeshes.forEach(m => m.userData.introActive = false);
-                photoMeshes[rand].userData.introActive = true;
-                timeLeft -= 3;
-            }, 3000);
+                introActiveIndex = currentI++;
+            }, timePerPhoto);
         }
 
         function animate() {
             requestAnimationFrame(animate);
-            if (star) star.rotation.y += 0.02;
+            if (star) {
+                star.rotation.y += 0.02;
+                star.material.emissiveIntensity = 0.6 + Math.sin(Date.now()*0.005)*0.3;
+            }
             magicDust.rotation.y += 0.0003;
 
-            if (isIntroFinished && !focusedMesh) {
-                camera.position.x += (Math.sin(Date.now()*0.0003)*100 - camera.position.x) * 0.02;
-            }
-            camera.lookAt(0, 0, 0);
+            // Rotate whole scene based on drag
+            scene.rotation.y += (targetRotationY - scene.rotation.y) * 0.1;
 
-            photoMeshes.forEach((mesh) => {
-                const isSelected = (mesh.userData.introActive && !isIntroFinished) || (mesh === focusedMesh);
+            photoMeshes.forEach((mesh, index) => {
+                const isSelected = (!isIntroFinished && index === introActiveIndex) || (mesh === focusedMesh);
                 
                 if (isSelected) {
-                    const targetPos = new THREE.Vector3(0, 0, 180); 
-                    mesh.position.lerp(targetPos, 0.1);
-                    mesh.scale.lerp(new THREE.Vector3(2.8, 2.8, 2.8), 0.1);
-                    mesh.rotation.set(0, 0, 0); 
+                    // CĂN GIỮA - PHẲNG - TO GẤP 1.5 LẦN
+                    const camDir = new THREE.Vector3(0,0,1).applyQuaternion(camera.quaternion);
+                    const centerPos = camera.position.clone().add(camDir.multiplyScalar(-110)); 
+                    centerPos.y += 10;
+
+                    mesh.position.lerp(centerPos, 0.12);
+                    mesh.scale.lerp(new THREE.Vector3(4.5, 4.5, 4.5), 0.12); 
+                    
+                    // Xoay ảnh khớp với camera để luôn phẳng
+                    mesh.quaternion.slerp(camera.quaternion, 0.12);
+                    
                     mesh.material.opacity = 1;
-                    mesh.userData.border.material.opacity = 1; // Hiện viền
+                    mesh.userData.border.material.opacity = 0.6;
                 } else {
-                    const target = isExploded ? mesh.userData.explodePos : mesh.userData.treePos;
+                    const target = (isIntroFinished && isExploded) ? mesh.userData.explodePos : mesh.userData.treePos;
                     mesh.position.lerp(target, 0.05);
                     mesh.scale.lerp(new THREE.Vector3(1, 1, 1), 0.1);
-                    mesh.material.opacity += ((isIntroFinished && isExploded ? 1 : (isIntroFinished ? 0.4 : 0.1)) - mesh.material.opacity) * 0.1;
-                    mesh.userData.border.material.opacity = 0; // Ẩn viền
-                    
+                    const baseOp = isIntroFinished ? (isExploded ? 1 : 0.4) : 0.15;
+                    mesh.material.opacity += (baseOp - mesh.material.opacity) * 0.1;
+                    mesh.userData.border.material.opacity = 0;
                     if (!isIntroFinished || !isExploded) mesh.lookAt(0, mesh.position.y, 0);
                     else { mesh.rotation.x += 0.005; mesh.rotation.y += 0.005; }
                 }
