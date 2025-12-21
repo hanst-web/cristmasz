@@ -3,25 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Christmas Memories 2025</title>
+    <title>Christmas Memories 2025 - Extreme View</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; touch-action: none; }
         #start-screen { position: absolute; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; color: white; }
         button { padding: 15px 40px; cursor: pointer; background: #b71c1c; color: white; border: 2px solid #ffd700; border-radius: 50px; font-weight: bold; font-size: 1.1rem; box-shadow: 0 0 15px gold; }
-        #status-tag { position: absolute; top: 15px; width: 100%; text-align: center; color: gold; font-weight: bold; z-index: 20; text-shadow: 0 0 10px black; font-size: 1rem; }
-        #ui-guide { position: absolute; bottom: 20px; width: 100%; text-align: center; color: white; z-index: 10; display: none; font-size: 0.8rem; opacity: 0.7; }
+        #status-tag { position: absolute; top: 15px; width: 100%; text-align: center; color: gold; font-weight: bold; z-index: 20; text-shadow: 0 0 10px black; font-size: 1.1rem; }
     </style>
 </head>
 <body>
 
     <div id="start-screen">
         <h1 style="color: gold; text-shadow: 0 0 15px gold; margin-bottom: 20px;">KỶ NIỆM GIÁNG SINH 2025</h1>
-        <button id="startBtn">BẮT ĐẦU TRÌNH CHIẾU</button>
+        <button id="startBtn">BẮT ĐẦU</button>
     </div>
 
     <div id="status-tag"></div>
-    <div id="ui-guide">✨ XOAY ĐỂ KHÁM PHÁ | ⭐ NHẤN ĐÚP SAO ĐỂ NỔ | 🖼️ CHẠM ẢNH ĐỂ XEM</div>
     <div id="container"></div>
 
     <audio id="music" loop><source src="audio.mp3" type="audio/mpeg"></audio>
@@ -32,26 +30,23 @@
         let isIntroFinished = false, isExploded = false, focusedMesh = null;
         let introActiveIndex = -1;
         let targetRotationY = 0, isDragging = false, previousMouseX = 0;
+        let lastClickTime = 0;
 
         const photoFiles = [];
         for(let i=1; i<=31; i++) photoFiles.push(`${i}.jpg`);
         photoFiles.push('top.jpg'); 
 
-        const totalPhotos = photoFiles.length; 
-        const timePerPhoto = 1000;
-
         function init() {
             scene = new THREE.Scene();
-            // Góc nhìn rộng hơn để đảm bảo không mất ảnh
-            camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 1, 3000);
-            camera.position.set(0, 30, 450); 
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 1, 5000);
+            camera.position.set(0, 20, 500); 
 
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             document.getElementById('container').appendChild(renderer.domElement);
 
-            scene.add(new THREE.AmbientLight(0xffffff, 1.6));
+            scene.add(new THREE.AmbientLight(0xffffff, 1.8));
             
             createStar();
             createDust();
@@ -70,25 +65,30 @@
 
         function createStar() {
             const shape = new THREE.Shape();
-            const pts = 5, outR = 25, inR = 12;
+            const pts = 5, outR = 30, inR = 15;
             for(let i=0; i<pts*2; i++){
                 const r = i%2===0 ? outR : inR;
                 const a = (i/pts) * Math.PI;
                 if(i===0) shape.moveTo(Math.cos(a)*r, Math.sin(a)*r);
                 else shape.lineTo(Math.cos(a)*r, Math.sin(a)*r);
             }
-            star = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, {depth: 5, bevelEnabled: true}), 
-                   new THREE.MeshStandardMaterial({color: 0xFFD700, emissive: 0xFFD700, emissiveIntensity: 0.8}));
-            star.position.y = 155;
+            const geo = new THREE.ExtrudeGeometry(shape, {depth: 6, bevelEnabled: true});
+            const mat = new THREE.MeshStandardMaterial({
+                color: 0xFFD700, emissive: 0xFFD700, emissiveIntensity: 1,
+                depthTest: false // Giúp ngôi sao luôn vẽ đè lên mọi thứ
+            });
+            star = new THREE.Mesh(geo, mat);
+            star.position.y = 160;
+            star.renderOrder = 999; // Lớp trên cùng
             scene.add(star);
         }
 
         function createDust() {
             const geo = new THREE.BufferGeometry();
             const pos = [];
-            for(let i=0; i<3000; i++) pos.push((Math.random()-0.5)*1500, (Math.random()-0.5)*1500, (Math.random()-0.5)*1500);
+            for(let i=0; i<4000; i++) pos.push((Math.random()-0.5)*2000, (Math.random()-0.5)*2000, (Math.random()-0.5)*2000);
             geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-            magicDust = new THREE.Points(geo, new THREE.PointsMaterial({color: 0xFFD700, size: 1.2, transparent: true, opacity: 0.4}));
+            magicDust = new THREE.Points(geo, new THREE.PointsMaterial({color: 0xFFD700, size: 1.5, transparent: true, opacity: 0.5}));
             scene.add(magicDust);
         }
 
@@ -97,16 +97,19 @@
             photoFiles.forEach((fileName, i) => {
                 const texture = loader.load(`public/photos/${fileName}`);
                 const mesh = new THREE.Mesh(
-                    new THREE.PlaneGeometry(30, 40), 
+                    new THREE.PlaneGeometry(35, 45), 
                     new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.5, side: THREE.DoubleSide })
                 );
                 
-                const t = i/totalPhotos;
+                const t = i/photoFiles.length;
                 const a = i * 0.85; 
-                const r = t * 120;
-                // Vị trí trên cây thông
-                mesh.userData.treePos = new THREE.Vector3(Math.cos(a)*r, (1-t)*250 - 100, Math.sin(a)*r);
-                mesh.userData.explodePos = new THREE.Vector3((Math.random()-0.5)*900, (Math.random()-0.5)*900, (Math.random()-0.5)*900);
+                const r = t * 130;
+                
+                mesh.userData.treePos = new THREE.Vector3(Math.cos(a)*r, (1-t)*280 - 120, Math.sin(a)*r);
+                // Vị trí trôi nổi ngẫu nhiên khi nổ
+                mesh.userData.explodePos = new THREE.Vector3((Math.random()-0.5)*1000, (Math.random()-0.5)*800, (Math.random()-0.5)*1000);
+                // Tốc độ xoay ngẫu nhiên khi trôi nổi
+                mesh.userData.rotVel = new THREE.Vector3(Math.random()*0.02, Math.random()*0.02, Math.random()*0.01);
                 
                 mesh.position.copy(mesh.userData.treePos);
                 photoMeshes.push(mesh);
@@ -118,27 +121,39 @@
             let count = 0;
             const status = document.getElementById('status-tag');
             const interval = setInterval(() => {
-                if(count >= totalPhotos) {
+                if(count >= photoFiles.length) {
                     clearInterval(interval);
                     isIntroFinished = true;
                     introActiveIndex = -1;
                     status.style.display = 'none';
-                    document.getElementById('ui-guide').style.display = 'block';
                     return;
                 }
                 introActiveIndex = count;
                 status.innerText = `🎞️ KỶ NIỆM ${count + 1}`;
                 count++;
-            }, timePerPhoto);
+            }, 1000);
         }
 
         function onDown(e) {
             isDragging = true;
             previousMouseX = e.clientX;
-            if(!isIntroFinished) return;
+            
             const mouse = new THREE.Vector2((e.clientX/window.innerWidth)*2-1, -(e.clientY/window.innerHeight)*2+1);
             const raycaster = new THREE.Raycaster();
             raycaster.setFromCamera(mouse, camera);
+            
+            // Kiểm tra click ngôi sao (nhấn đúp)
+            const starHit = raycaster.intersectObject(star);
+            if(starHit.length > 0) {
+                const now = Date.now();
+                if(now - lastClickTime < 300) {
+                    isExploded = !isExploded; // Chuyển đổi trạng thái Nổ/Cây thông
+                }
+                lastClickTime = now;
+                return;
+            }
+
+            if(!isIntroFinished) return;
             const intersects = raycaster.intersectObjects(photoMeshes);
             if(intersects.length > 0) focusedMesh = (focusedMesh === intersects[0].object) ? null : intersects[0].object;
             else focusedMesh = null;
@@ -153,36 +168,39 @@
 
         function animate() {
             requestAnimationFrame(animate);
-            star.rotation.y += 0.02;
-            magicDust.rotation.y += 0.0003;
+            star.rotation.y += 0.03;
+            magicDust.rotation.y += 0.0002;
             scene.rotation.y += (targetRotationY - scene.rotation.y) * 0.1;
 
             photoMeshes.forEach((mesh, idx) => {
                 const isActive = (idx === introActiveIndex) || (mesh === focusedMesh);
                 
                 if(isActive) {
-                    // 1. VỊ TRÍ: Bay ra phía trước cây thông khoảng 100 đơn vị (tương đương 10cm trong scale này)
-                    // Ảnh sẽ bay về hướng Camera nhưng chỉ dừng lại ở khoảng cách gần cây thông
-                    const directionToCamera = new THREE.Vector3().subVectors(camera.position, mesh.userData.treePos).normalize();
-                    const targetPos = mesh.userData.treePos.clone().add(directionToCamera.multiplyScalar(120));
+                    // PHÓNG TO CỰC ĐẠI (Gấp 12 lần so với scale 1)
+                    // Đẩy ảnh ra sát Camera hơn để đè lên mọi thứ
+                    const dir = new THREE.Vector3().subVectors(camera.position, mesh.position).normalize();
+                    const targetPos = new THREE.Vector3().addVectors(camera.position, dir.multiplyScalar(-200));
                     
-                    mesh.position.lerp(targetPos, 0.1);
-                    
-                    // 2. PHÓNG TO: Gấp 4 lần ảnh gốc
-                    mesh.scale.lerp(new THREE.Vector3(4, 4, 1), 0.1);
-                    
-                    // 3. PHẲNG HÓA: Luôn nhìn thẳng Camera
+                    mesh.position.lerp(targetPos, 0.12);
+                    mesh.scale.lerp(new THREE.Vector3(12, 12, 1), 0.12); 
                     mesh.quaternion.copy(camera.quaternion).premultiply(scene.quaternion.clone().invert());
                     mesh.material.opacity = 1;
+                    mesh.renderOrder = 100; // Vẽ trên các ảnh khác nhưng dưới ngôi sao
                 } else {
-                    const target = (isIntroFinished && isExploded) ? mesh.userData.explodePos : mesh.userData.treePos;
-                    mesh.position.lerp(target, 0.08);
+                    const target = isExploded ? mesh.userData.explodePos : mesh.userData.treePos;
+                    mesh.position.lerp(target, 0.05);
                     mesh.scale.lerp(new THREE.Vector3(1, 1, 1), 0.1);
+                    mesh.renderOrder = 0;
+
+                    if(isExploded) {
+                        // Hiệu ứng trôi nổi xoay tròn khi nổ
+                        mesh.rotation.x += mesh.userData.rotVel.x;
+                        mesh.rotation.y += mesh.userData.rotVel.y;
+                    } else {
+                        mesh.lookAt(0, mesh.position.y, 0);
+                    }
                     
-                    if(!isExploded) mesh.lookAt(0, mesh.position.y, 0);
-                    
-                    // Cây thông vẫn xuất hiện đằng sau với độ mờ 0.4
-                    const baseOpacity = isIntroFinished ? (isExploded ? 1 : 0.4) : 0.4;
+                    const baseOpacity = isExploded ? 0.9 : 0.4;
                     mesh.material.opacity += (baseOpacity - mesh.material.opacity) * 0.1;
                 }
             });
