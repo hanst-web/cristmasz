@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect, Suspense } from 'react';
+import { useState, useMemo, useRef, Suspense, useEffect } from 'react';
 import { Canvas, useFrame, extend } from '@react-three/fiber';
 import {
   OrbitControls,
@@ -14,14 +14,14 @@ import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { MathUtils } from 'three';
 import * as random from 'maath/random';
-import { GestureRecognizer, FilesetResolver, DrawingUtils } from "@mediapipe/tasks-vision";
 
-// --- 动态生成照片列表 (top.jpg + 1.jpg 到 31.jpg) ---
-const TOTAL_NUMBERED_PHOTOS = 31;
-// 修改：将 top.jpg 加入到数组开头
+
+// --- 动态生成照片列表（只使用三张照片并循环） ---
+// 只保留三张：1.jpg, 2.jpg, 3.jpg。 PhotoOrnaments 会基于 textures.length 循环使用这些图像。
 const bodyPhotoPaths = [
-  '/photos/top.jpg',
-  ...Array.from({ length: TOTAL_NUMBERED_PHOTOS }, (_, i) => `/photos/${i + 1}.jpg`)
+  'photos/1.png',
+  'photos/2.png',
+  'photos/3.png'
 ];
 
 // --- 视觉配置 ---
@@ -44,7 +44,7 @@ const CONFIG = {
   counts: {
     foliage: 15000,
     ornaments: 300,   // 拍立得照片数量
-    elements: 200,    // 圣诞元素数量
+    elements: 250,    // 圣诞元素数量
     lights: 400       // 彩灯数量
   },
   tree: { height: 22, radius: 9 }, // 树体尺寸
@@ -89,7 +89,7 @@ const getTreePosition = () => {
 };
 
 // --- Component: Foliage ---
-const Foliage = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
+const Foliage = ({ progress, destroyed }: { progress: number, destroyed?: boolean }) => {
   const materialRef = useRef<any>(null);
   const { positions, targetPositions, randoms } = useMemo(() => {
     const count = CONFIG.counts.foliage;
@@ -106,13 +106,18 @@ const Foliage = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
   useFrame((rootState, delta) => {
     if (materialRef.current) {
       materialRef.current.uTime = rootState.clock.elapsedTime;
-      const targetProgress = state === 'FORMED' ? 1 : 0;
-      materialRef.current.uProgress = MathUtils.damp(materialRef.current.uProgress, targetProgress, 1.5, delta);
+      // 正常进度混合
+      materialRef.current.uProgress = MathUtils.damp(materialRef.current.uProgress ?? 0, progress, 1.5, delta);
+      // 破坏时推动点云远离（将 progress 推高并加入噪声时间）
+      if (destroyed) {
+        materialRef.current.uProgress = MathUtils.damp(materialRef.current.uProgress, 1.8, 0.8, delta);
+        materialRef.current.uTime += rootState.clock.elapsedTime * 0.5;
+      }
     }
   });
   return (
     <points>
-      <bufferGeometry>
+      <bufferGeometry onUpdate={(g:any) => { g.computeBoundingSphere(); }}>
         <bufferAttribute attach="attributes-position" args={[positions, 3]} />
         <bufferAttribute attach="attributes-aTargetPos" args={[targetPositions, 3]} />
         <bufferAttribute attach="attributes-aRandom" args={[randoms, 1]} />
@@ -124,15 +129,23 @@ const Foliage = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
 };
 
 // --- Component: Photo Ornaments (Double-Sided Polaroid) ---
-const PhotoOrnaments = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
+const PhotoOrnaments = ({ progress, destroyed }: { progress: number, destroyed?: boolean }) => {
   const textures = useTexture(CONFIG.photos.body);
   const count = CONFIG.counts.ornaments;
   const groupRef = useRef<THREE.Group>(null);
+
+  // 预生成并缓存纹理材质，避免每次渲染创建新材质
+  const materials = useMemo(() => textures.map(tex => new THREE.MeshStandardMaterial({
+    map: tex, roughness: 0.5, metalness: 0, emissive: CONFIG.colors.white, emissiveMap: tex, emissiveIntensity: 1.0, side: THREE.FrontSide
+  })), [textures]);
+
+  const borderMaterialCacheRef = useRef<Map<string, THREE.MeshStandardMaterial>>(new Map());
 
   const borderGeometry = useMemo(() => new THREE.PlaneGeometry(1.2, 1.5), []);
   const photoGeometry = useMemo(() => new THREE.PlaneGeometry(1, 1), []);
 
   const data = useMemo(() => {
+    const cache = borderMaterialCacheRef.current;
     return new Array(count).fill(0).map((_, i) => {
       const chaosPos = new THREE.Vector3((Math.random()-0.5)*70, (Math.random()-0.5)*70, (Math.random()-0.5)*70);
       const h = CONFIG.tree.height; const y = (Math.random() * h) - (h / 2);
@@ -153,79 +166,100 @@ const PhotoOrnaments = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
       };
       const chaosRotation = new THREE.Euler(Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI);
 
+      const borderMaterial = cache.get(borderColor) ?? (() => { const m = new THREE.MeshStandardMaterial({ color: borderColor, roughness: 0.9, metalness: 0, side: THREE.FrontSide }); cache.set(borderColor, m); return m; })();
+
+      // 为破坏效果预生成爆散方向与速度
+      const explodeDir = new THREE.Vector3((Math.random()-0.5), (Math.random()-0.2), (Math.random()-0.5)).normalize();
+      const explodeSpeed = 25 + Math.random() * 60;
       return {
         chaosPos, targetPos, scale: baseScale, weight,
         textureIndex: i % textures.length,
         borderColor,
+        borderMaterial,
         currentPos: chaosPos.clone(),
         chaosRotation,
         rotationSpeed,
         wobbleOffset: Math.random() * 10,
-        wobbleSpeed: 0.5 + Math.random() * 0.5
+        wobbleSpeed: 0.5 + Math.random() * 0.5,
+        clicked: false,
+        clickProgress: 0,
+        tmp: new THREE.Vector3(),
+        explodeDir,
+        explodeSpeed
       };
     });
   }, [textures, count]);
 
   useFrame((stateObj, delta) => {
     if (!groupRef.current) return;
-    const isFormed = state === 'FORMED';
     const time = stateObj.clock.elapsedTime;
 
     groupRef.current.children.forEach((group, i) => {
       const objData = data[i];
-      const target = isFormed ? objData.targetPos : objData.chaosPos;
+      // 将位置基于 progress 做平滑插值
+      const target = objData.targetPos.clone().lerp(objData.chaosPos, 1 - progress);
 
-      objData.currentPos.lerp(target, delta * (isFormed ? 0.8 * objData.weight : 0.5));
+      objData.currentPos.lerp(target, MathUtils.damp(0, 1, 5.0, delta) * (0.9 + objData.weight * 0.1));
       group.position.copy(objData.currentPos);
 
-      if (isFormed) {
-         const targetLookPos = new THREE.Vector3(group.position.x * 2, group.position.y + 0.5, group.position.z * 2);
-         group.lookAt(targetLookPos);
-
-         const wobbleX = Math.sin(time * objData.wobbleSpeed + objData.wobbleOffset) * 0.05;
-         const wobbleZ = Math.cos(time * objData.wobbleSpeed * 0.8 + objData.wobbleOffset) * 0.05;
-         group.rotation.x += wobbleX;
-         group.rotation.z += wobbleZ;
-
+      // 点击动画（局部 scale 动画）
+      if (objData.clicked) {
+        objData.clickProgress = Math.min(1, objData.clickProgress + delta * 3);
+        const clickScale = objData.scale * (1 + 0.6 * Math.sin(objData.clickProgress * Math.PI));
+        group.scale.set(clickScale, clickScale, clickScale);
+        if (objData.clickProgress >= 1) { objData.clicked = false; objData.clickProgress = 0; }
       } else {
-         group.rotation.x += delta * objData.rotationSpeed.x;
-         group.rotation.y += delta * objData.rotationSpeed.y;
-         group.rotation.z += delta * objData.rotationSpeed.z;
+        group.scale.lerp(new THREE.Vector3(objData.scale, objData.scale, objData.scale), delta * 4);
       }
+
+      // 破坏时的爆散逻辑（优先于正常行为）
+      if (destroyed) {
+        // 按 explodeDir 推动并随机旋转
+        group.position.addScaledVector(objData.explodeDir, objData.explodeSpeed * delta);
+        group.rotation.x += delta * objData.rotationSpeed.x * 3;
+        group.rotation.y += delta * objData.rotationSpeed.y * 3;
+        group.rotation.z += delta * objData.rotationSpeed.z * 3;
+        // 同时减小 scale
+        const s = Math.max(0, group.scale.x - delta * 0.6);
+        group.scale.set(s, s, s);
+        return; // 跳过常规摆动/对齐逻辑
+      }
+
+      // 旋转与微摆动基于 progress 混合
+      const wobbleX = Math.sin(time * objData.wobbleSpeed + objData.wobbleOffset) * 0.05 * progress;
+      const wobbleZ = Math.cos(time * objData.wobbleSpeed * 0.8 + objData.wobbleOffset) * 0.05 * progress;
+      group.rotation.x = MathUtils.damp(group.rotation.x, wobbleX, 4, delta);
+      group.rotation.z = MathUtils.damp(group.rotation.z, wobbleZ, 4, delta);
+
+      // 当接近完成时，让照片面向一个更“树心”的方向
+      if (progress > 0.6) {
+        const targetLookPos = new THREE.Vector3(group.position.x * 2, group.position.y + 0.5, group.position.z * 2);
+        group.lookAt(targetLookPos);
+      }
+
     });
   });
+
+  const handleClick = (e: any, i: number) => {
+    e.stopPropagation();
+    const obj = data[i];
+    obj.clicked = true; obj.clickProgress = 0;
+    // 不再打开图片，保留点击反馈动画
+  };
 
   return (
     <group ref={groupRef}>
       {data.map((obj, i) => (
-        <group key={i} scale={[obj.scale, obj.scale, obj.scale]} rotation={state === 'CHAOS' ? obj.chaosRotation : [0,0,0]}>
+        <group key={i} scale={[obj.scale, obj.scale, obj.scale]} rotation={[0,0,0]}>
           {/* 正面 */}
           <group position={[0, 0, 0.015]}>
-            <mesh geometry={photoGeometry}>
-              <meshStandardMaterial
-                map={textures[obj.textureIndex]}
-                roughness={0.5} metalness={0}
-                emissive={CONFIG.colors.white} emissiveMap={textures[obj.textureIndex]} emissiveIntensity={1.0}
-                side={THREE.FrontSide}
-              />
-            </mesh>
-            <mesh geometry={borderGeometry} position={[0, -0.15, -0.01]}>
-              <meshStandardMaterial color={obj.borderColor} roughness={0.9} metalness={0} side={THREE.FrontSide} />
-            </mesh>
+            <mesh geometry={photoGeometry} onClick={(e:any) => handleClick(e, i)} material={materials[obj.textureIndex]} castShadow={false} receiveShadow={false} />
+            <mesh geometry={borderGeometry} position={[0, -0.15, -0.01]} material={obj.borderMaterial} castShadow={false} receiveShadow={false} />
           </group>
           {/* 背面 */}
           <group position={[0, 0, -0.015]} rotation={[0, Math.PI, 0]}>
-            <mesh geometry={photoGeometry}>
-              <meshStandardMaterial
-                map={textures[obj.textureIndex]}
-                roughness={0.5} metalness={0}
-                emissive={CONFIG.colors.white} emissiveMap={textures[obj.textureIndex]} emissiveIntensity={1.0}
-                side={THREE.FrontSide}
-              />
-            </mesh>
-            <mesh geometry={borderGeometry} position={[0, -0.15, -0.01]}>
-              <meshStandardMaterial color={obj.borderColor} roughness={0.9} metalness={0} side={THREE.FrontSide} />
-            </mesh>
+            <mesh geometry={photoGeometry} material={materials[obj.textureIndex]} castShadow={false} receiveShadow={false} />
+            <mesh geometry={borderGeometry} position={[0, -0.15, -0.01]} material={obj.borderMaterial} castShadow={false} receiveShadow={false} />
           </group>
         </group>
       ))}
@@ -234,7 +268,7 @@ const PhotoOrnaments = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
 };
 
 // --- Component: Christmas Elements ---
-const ChristmasElements = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
+const ChristmasElements = ({ progress, destroyed }: { progress: number, destroyed?: boolean }) => {
   const count = CONFIG.counts.elements;
   const groupRef = useRef<THREE.Group>(null);
 
@@ -242,7 +276,11 @@ const ChristmasElements = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
   const sphereGeometry = useMemo(() => new THREE.SphereGeometry(0.5, 16, 16), []);
   const caneGeometry = useMemo(() => new THREE.CylinderGeometry(0.15, 0.15, 1.2, 8), []);
 
+  const elementMaterialCacheRef = useRef<Map<string, THREE.MeshStandardMaterial>>(new Map());
+  const tmpScaleRef = useRef(new THREE.Vector3());
+
   const data = useMemo(() => {
+    const cache = elementMaterialCacheRef.current;
     return new Array(count).fill(0).map(() => {
       const chaosPos = new THREE.Vector3((Math.random()-0.5)*60, (Math.random()-0.5)*60, (Math.random()-0.5)*60);
       const h = CONFIG.tree.height;
@@ -260,20 +298,36 @@ const ChristmasElements = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
       else { color = Math.random() > 0.5 ? CONFIG.colors.red : CONFIG.colors.white; scale = 0.7 + Math.random() * 0.3; }
 
       const rotationSpeed = { x: (Math.random()-0.5)*2.0, y: (Math.random()-0.5)*2.0, z: (Math.random()-0.5)*2.0 };
-      return { type, chaosPos, targetPos, color, scale, currentPos: chaosPos.clone(), chaosRotation: new THREE.Euler(Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI), rotationSpeed };
+      const material = cache.get(color) ?? (() => { const m = new THREE.MeshStandardMaterial({ color, roughness: 0.3, metalness: 0.4, emissive: color, emissiveIntensity: 0.2 }); cache.set(color, m); return m; })();
+      const explodeDir = new THREE.Vector3((Math.random()-0.5), (Math.random()-0.2), (Math.random()-0.5)).normalize();
+      const explodeSpeed = 20 + Math.random() * 70;
+      return { type, chaosPos, targetPos, color, scale, currentPos: chaosPos.clone(), chaosRotation: new THREE.Euler(Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI), rotationSpeed, tmp: new THREE.Vector3(), material, explodeDir, explodeSpeed };
     });
-  }, [boxGeometry, sphereGeometry, caneGeometry]);
+  }, [boxGeometry, sphereGeometry, caneGeometry, count]);
 
   useFrame((_, delta) => {
     if (!groupRef.current) return;
-    const isFormed = state === 'FORMED';
     groupRef.current.children.forEach((child, i) => {
       const mesh = child as THREE.Mesh;
       const objData = data[i];
-      const target = isFormed ? objData.targetPos : objData.chaosPos;
-      objData.currentPos.lerp(target, delta * 1.5);
+      // 破坏行为覆盖常规行为
+      if (destroyed) {
+        mesh.position.addScaledVector(objData.explodeDir, objData.explodeSpeed * delta);
+        mesh.rotation.x += delta * objData.rotationSpeed.x * 3; mesh.rotation.y += delta * objData.rotationSpeed.y * 3; mesh.rotation.z += delta * objData.rotationSpeed.z * 3;
+        mesh.scale.lerp(new THREE.Vector3(0.01,0.01,0.01), delta * 1.5);
+        if (mesh.material !== objData.material) mesh.material = objData.material;
+        return;
+      }
+      // 根据 progress 混合位置（使用预分配 tmp）
+      objData.tmp.copy(objData.targetPos).lerp(objData.chaosPos, 1 - progress);
+      objData.currentPos.lerp(objData.tmp, delta * 1.5);
       mesh.position.copy(objData.currentPos);
       mesh.rotation.x += delta * objData.rotationSpeed.x; mesh.rotation.y += delta * objData.rotationSpeed.y; mesh.rotation.z += delta * objData.rotationSpeed.z;
+      // 缩放基于 progress（重用 tmpScaleRef 避免每帧创建向量）
+      const s = objData.scale * (0.5 + progress);
+      tmpScaleRef.current.set(s, s, s);
+      mesh.scale.lerp(tmpScaleRef.current, delta * 4);
+      if (mesh.material !== objData.material) mesh.material = objData.material;
     });
   });
 
@@ -281,15 +335,13 @@ const ChristmasElements = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
     <group ref={groupRef}>
       {data.map((obj, i) => {
         let geometry; if (obj.type === 0) geometry = boxGeometry; else if (obj.type === 1) geometry = sphereGeometry; else geometry = caneGeometry;
-        return ( <mesh key={i} scale={[obj.scale, obj.scale, obj.scale]} geometry={geometry} rotation={obj.chaosRotation}>
-          <meshStandardMaterial color={obj.color} roughness={0.3} metalness={0.4} emissive={obj.color} emissiveIntensity={0.2} />
-        </mesh> )})}
+        return ( <mesh key={i} scale={[obj.scale, obj.scale, obj.scale]} geometry={geometry} rotation={obj.chaosRotation} material={obj.material} castShadow={false} receiveShadow={false} /> )})}
     </group>
   );
 };
 
 // --- Component: Fairy Lights ---
-const FairyLights = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
+const FairyLights = ({ progress, destroyed }: { progress: number, destroyed?: boolean }) => {
   const count = CONFIG.counts.lights;
   const groupRef = useRef<THREE.Group>(null);
   const geometry = useMemo(() => new THREE.SphereGeometry(0.8, 8, 8), []);
@@ -302,36 +354,47 @@ const FairyLights = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
       const targetPos = new THREE.Vector3(currentRadius * Math.cos(theta), y, currentRadius * Math.sin(theta));
       const color = CONFIG.colors.lights[Math.floor(Math.random() * CONFIG.colors.lights.length)];
       const speed = 2 + Math.random() * 3;
-      return { chaosPos, targetPos, color, speed, currentPos: chaosPos.clone(), timeOffset: Math.random() * 100 };
+      const material = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0, toneMapped: false });
+      const explodeDir = new THREE.Vector3((Math.random()-0.5), (Math.random()-0.2), (Math.random()-0.5)).normalize();
+      const explodeSpeed = 15 + Math.random() * 50;
+      return { chaosPos, targetPos, color, speed, currentPos: chaosPos.clone(), timeOffset: Math.random() * 100, material, tmp: new THREE.Vector3(), explodeDir, explodeSpeed };
     });
   }, []);
 
   useFrame((stateObj, delta) => {
     if (!groupRef.current) return;
-    const isFormed = state === 'FORMED';
     const time = stateObj.clock.elapsedTime;
     groupRef.current.children.forEach((child, i) => {
       const objData = data[i];
-      const target = isFormed ? objData.targetPos : objData.chaosPos;
-      objData.currentPos.lerp(target, delta * 2.0);
+      objData.tmp.copy(objData.targetPos).lerp(objData.chaosPos, 1 - progress);
+      objData.currentPos.lerp(objData.tmp, delta * 2.0);
       const mesh = child as THREE.Mesh;
       mesh.position.copy(objData.currentPos);
       const intensity = (Math.sin(time * objData.speed + objData.timeOffset) + 1) / 2;
-      if (mesh.material) { (mesh.material as THREE.MeshStandardMaterial).emissiveIntensity = isFormed ? 3 + intensity * 4 : 0; }
+      if (destroyed) {
+        // 爆散效果（复用上方的 mesh 变量）
+        mesh.position.addScaledVector(objData.explodeDir, objData.explodeSpeed * delta);
+        objData.material.emissiveIntensity = 0;
+        if (mesh.material !== objData.material) mesh.material = objData.material;
+        return;
+      }
+      // 更新 material 而不是访问 mesh.material（保证一致性）
+      objData.material.emissiveIntensity = progress ? 3 * progress + intensity * 4 * progress : 0;
+      if (mesh.material !== objData.material) mesh.material = objData.material;
     });
   });
 
   return (
     <group ref={groupRef}>
-      {data.map((obj, i) => ( <mesh key={i} scale={[0.15, 0.15, 0.15]} geometry={geometry}>
-          <meshStandardMaterial color={obj.color} emissive={obj.color} emissiveIntensity={0} toneMapped={false} />
+      {data.map((obj, i) => ( <mesh key={i} scale={[0.15, 0.15, 0.15]} geometry={geometry} material={obj.material}>
+          {/* material created and owned in data for predictable updates */}
         </mesh> ))}
     </group>
   );
 };
 
 // --- Component: Top Star (No Photo, Pure Gold 3D Star) ---
-const TopStar = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
+const TopStar = ({ progress, destroyed }: { progress: number, destroyed?: boolean }) => {
   const groupRef = useRef<THREE.Group>(null);
 
   const starShape = useMemo(() => {
@@ -363,11 +426,18 @@ const TopStar = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
   }), []);
 
   useFrame((_, delta) => {
-    if (groupRef.current) {
-      groupRef.current.rotation.y += delta * 0.5;
-      const targetScale = state === 'FORMED' ? 1 : 0;
-      groupRef.current.scale.lerp(new THREE.Vector3(targetScale, targetScale, targetScale), delta * 3);
+    if (!groupRef.current) return;
+    if (destroyed) {
+      // 破坏时星星掉落并碎裂（表现为快速旋转并缩小）
+      groupRef.current.rotation.x += delta * 8;
+      groupRef.current.rotation.y += delta * 6;
+      groupRef.current.position.y -= delta * 12;
+      groupRef.current.scale.lerp(new THREE.Vector3(0.01, 0.01, 0.01), delta * 4);
+      return;
     }
+    groupRef.current.rotation.y += delta * 0.5;
+    const targetScale = progress;
+    groupRef.current.scale.lerp(new THREE.Vector3(targetScale, targetScale, targetScale), delta * 3);
   });
 
   return (
@@ -380,19 +450,187 @@ const TopStar = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
 };
 
 // --- Main Scene Experience ---
-const Experience = ({ sceneState, rotationSpeed }: { sceneState: 'CHAOS' | 'FORMED', rotationSpeed: number }) => {
+const Experience = ({ assemblyProgress, setAssemblyProgress, rotationSpeed }: { assemblyProgress: number, setAssemblyProgress: (p:number) => void, rotationSpeed: number }) => {
   const controlsRef = useRef<any>(null);
-  useFrame(() => {
-    if (controlsRef.current) {
-      controlsRef.current.setAzimuthalAngle(controlsRef.current.getAzimuthalAngle() + rotationSpeed);
-      controlsRef.current.update();
+  const progressRef = useRef<number>(assemblyProgress);
+  // 用于检测摄像机距离变化方向与平滑应用 zoom speed 的缓存
+  const prevDistanceRef = useRef<number | null>(null);
+  const zoomSpeedRef = useRef<number>(1.0);
+
+  // ---- 新：放大阻尼与破坏（explosion） ----
+  const zoomVelocityRef = useRef<number>(0); // positive -> zoom out, negative -> zoom in
+  const initialPinchDistanceRef = useRef<number | null>(null);
+  const destructionChargeRef = useRef<number>(0);
+  const [destroyed, setDestroyed] = useState(false);
+
+  // 可调参数（可后面暴露为 UI）
+  const ZOOM_RESISTANCE = 0.06; // 数值越小阻力越明显
+  const ZOOM_SENSITIVITY = 0.5; // 缩放灵敏度变换
+  const DESTRUCTION_THRESHOLD = 120; // charge 达到阈值触发破坏
+  const DESTRUCTION_CHARGE_RATE = 45; // 每单位缩放速度积累多少 charge
+  const CHARGE_DECAY = 40; // 每秒 decay
+
+  // 全局临时向量
+  const tmpDirection = new THREE.Vector3();
+
+  // 绑定全局 wheel/pinch 事件以统一控制缩放和阻尼
+  useEffect(() => {
+    const onWheel = (e: WheelEvent) => {
+      // 只处理主要滚轮，手动阻止默认 zoom 行为
+      e.preventDefault();
+      const delta = Math.sign(e.deltaY);
+      // 负 delta 表示向上滚（页面向上） => 通常是放大（zoom in），我们使用 -delta
+      const zoomDelta = -delta * Math.abs(e.deltaY) * 0.003 * ZOOM_SENSITIVITY * ZOOM_RESISTANCE;
+      zoomVelocityRef.current += zoomDelta;
+      // 当方向是放大 (zoomDelta < 0)，为破坏 charge 累加
+      if (zoomDelta < 0) {
+        destructionChargeRef.current += -zoomDelta * DESTRUCTION_CHARGE_RATE;
+      }
+    };
+
+    let touchHandlerAttached = false;
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches && e.touches.length === 2) {
+        initialPinchDistanceRef.current = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+      }
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches && e.touches.length === 2 && initialPinchDistanceRef.current) {
+        e.preventDefault();
+        const d = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+        const delta = d - initialPinchDistanceRef.current; // 正表示张开（zoom out）
+        // 反向为放大
+        const zoomDelta = - (delta * 0.002) * ZOOM_SENSITIVITY * ZOOM_RESISTANCE;
+        zoomVelocityRef.current += zoomDelta;
+        initialPinchDistanceRef.current = d;
+        if (zoomDelta < 0) destructionChargeRef.current += -zoomDelta * DESTRUCTION_CHARGE_RATE;
+      }
+    };
+    const onTouchEnd = (e: TouchEvent) => { if (!e.touches || e.touches.length < 2) initialPinchDistanceRef.current = null; };
+
+    window.addEventListener('wheel', onWheel, { passive: false });
+    window.addEventListener('touchstart', onTouchStart, { passive: false });
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend', onTouchEnd, { passive: false });
+    touchHandlerAttached = true;
+
+    return () => {
+      window.removeEventListener('wheel', onWheel);
+      if (touchHandlerAttached) {
+        window.removeEventListener('touchstart', onTouchStart);
+        window.removeEventListener('touchmove', onTouchMove);
+        window.removeEventListener('touchend', onTouchEnd);
+      }
+    };
+  }, []);
+
+  useFrame((state, delta) => {
+    // 根据摄像机与树心距离映射为进度（0..1），更靠近视为组装
+    const cam = state.camera;
+    const treeCenter = new THREE.Vector3(0, -6, 0);
+    const d = cam.position.distanceTo(treeCenter);
+    const minD = 30; const maxD = 120; // 对应 OrbitControls 的范围
+    const raw = 1 - (d - minD) / (maxD - minD);
+    const clamped = MathUtils.clamp(raw, 0, 1);
+    // 反转映射：放大（更近，相机距离小） => 散开（progress 低）
+    const inverted = 1 - clamped;
+
+    // 阻力与瞬间完成逻辑：在接近两端时增加阻力，且在越过阈值时快速“跳到”终点
+    const RESISTANCE_START = 0.85;
+    const SNAP_THRESHOLD = 0.98;
+    const SOFT_CAP = 0.95;
+    let newProgress = progressRef.current;
+
+    if (inverted >= SNAP_THRESHOLD) {
+      // 快速跳向 1
+      newProgress = MathUtils.damp(progressRef.current, 1, 10, delta);
+      if (newProgress > 0.999) newProgress = 1;
+    } else if (inverted >= RESISTANCE_START) {
+      // 进入阻力区，先慢慢推进到一个软上限
+      const softened = Math.min(inverted, SOFT_CAP);
+      newProgress = MathUtils.damp(progressRef.current, softened, 1.0, delta);
+    } else if (inverted <= (1 - SNAP_THRESHOLD)) {
+      // 快速跳向 0
+      newProgress = MathUtils.damp(progressRef.current, 0, 10, delta);
+      if (newProgress < 0.001) newProgress = 0;
+    } else if (inverted <= (1 - RESISTANCE_START)) {
+      // 低端阻力
+      const softenedLow = Math.max(inverted, 1 - SOFT_CAP);
+      newProgress = MathUtils.damp(progressRef.current, softenedLow, 1.0, delta);
+    } else {
+      // 正常平滑过渡
+      newProgress = MathUtils.damp(progressRef.current, inverted, 4, delta);
+    }
+
+    progressRef.current = newProgress;
+    setAssemblyProgress(newProgress);
+
+    // 在这里加入 zoomVelocity 的应用（移动相机）以及破坏检测
+    try {
+      // 将 zoomVelocity 应用于摄像机：正值 -> 后退(zoom out)，负值 -> 前进(zoom in)
+      if (Math.abs(zoomVelocityRef.current) > 1e-4) {
+        const cam = state.camera;
+        cam.getWorldDirection(tmpDirection);
+        // 缩放速度控制；乘以一个常数以调节感受
+        const applied = zoomVelocityRef.current * 60 * delta;
+        cam.position.addScaledVector(tmpDirection, applied);
+        // 逐步衰减 zoom velocity（阻尼）
+        zoomVelocityRef.current = MathUtils.damp(zoomVelocityRef.current, 0, 6, delta);
+      }
+
+      // 破坏 charge 随时间衰减
+      if (destructionChargeRef.current > 0) {
+        destructionChargeRef.current = Math.max(0, destructionChargeRef.current - CHARGE_DECAY * delta);
+      }
+
+      // 当 charge 超过阈值并且还未触发破坏，触发一次
+      if (!destroyed && destructionChargeRef.current >= DESTRUCTION_THRESHOLD) {
+        setDestroyed(true);
+      }
+
+      if (controlsRef.current) {
+        const EDGE_THRESHOLD = 0.15; // 当距离端点小于此值开始出现阻力
+        const MIN_ZOOM_SPEED = 0.02; // 更强的最小 zoom speed（更强阻力）
+        const MAX_ZOOM_SPEED = 1.0;  // 默认最大 zoom speed
+        const edgeDist = Math.min(progressRef.current, 1 - progressRef.current);
+        const tEdge = Math.max(0, (EDGE_THRESHOLD - edgeDist) / EDGE_THRESHOLD);
+        // 使用 ease (平方) 让阻力更平滑
+        const ease = tEdge * tEdge;
+
+        // 基础目标 zoom speed（两端阻力）
+        let targetZoomSpeed = THREE.MathUtils.lerp(MAX_ZOOM_SPEED, MIN_ZOOM_SPEED, ease);
+
+        // 判断摄像机当前是否在靠近树心（放大）方向，给放大方向额外阻力
+        const lastD = prevDistanceRef.current ?? d;
+        const deltaD = d - lastD; // 负值表示正在靠近（放大）
+        prevDistanceRef.current = d;
+
+        if (deltaD < 0) {
+          // 放大方向：根据靠近速度和 ease 加强阻力（非线性缩放）
+          const extraFactor = THREE.MathUtils.clamp(1 - Math.abs(deltaD) * 0.45, 0.12, 1.0);
+          // 使用 ease 加权应用额外阻力，使边缘处更明显
+          targetZoomSpeed *= THREE.MathUtils.lerp(1.0, extraFactor, ease);
+        }
+
+        // 平滑过渡到目标 zoom speed，避免突变
+        zoomSpeedRef.current = MathUtils.damp(zoomSpeedRef.current, targetZoomSpeed, 6, delta);
+        controlsRef.current.zoomSpeed = Math.max(0.02, zoomSpeedRef.current);
+      }
+    } catch (err) {
+      // ignore if controls not ready
     }
   });
 
   return (
     <>
       <PerspectiveCamera makeDefault position={[0, 8, 60]} fov={45} />
-      <OrbitControls ref={controlsRef} enablePan={false} enableZoom={true} minDistance={30} maxDistance={120} autoRotate={rotationSpeed === 0 && sceneState === 'FORMED'} autoRotateSpeed={0.3} maxPolarAngle={Math.PI / 1.7} />
+      <OrbitControls ref={controlsRef} enablePan={false} enableZoom={true} minDistance={30} maxDistance={120} autoRotate={rotationSpeed === 0 && assemblyProgress > 0.9} autoRotateSpeed={0.3} maxPolarAngle={Math.PI / 1.7} />
 
       <color attach="background" args={['#000300']} />
       <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
@@ -404,12 +642,12 @@ const Experience = ({ sceneState, rotationSpeed }: { sceneState: 'CHAOS' | 'FORM
       <pointLight position={[0, -20, 10]} intensity={30} color="#ffffff" />
 
       <group position={[0, -6, 0]}>
-        <Foliage state={sceneState} />
+        <Foliage progress={assemblyProgress} destroyed={destroyed} />
         <Suspense fallback={null}>
-           <PhotoOrnaments state={sceneState} />
-           <ChristmasElements state={sceneState} />
-           <FairyLights state={sceneState} />
-           <TopStar state={sceneState} />
+           <PhotoOrnaments progress={assemblyProgress} destroyed={destroyed} />
+           <ChristmasElements progress={assemblyProgress} destroyed={destroyed} />
+           <FairyLights progress={assemblyProgress} destroyed={destroyed} />
+           <TopStar progress={assemblyProgress} destroyed={destroyed} />
         </Suspense>
         <Sparkles count={600} scale={50} size={8} speed={0.4} opacity={0.4} color={CONFIG.colors.silver} />
       </group>
@@ -422,133 +660,33 @@ const Experience = ({ sceneState, rotationSpeed }: { sceneState: 'CHAOS' | 'FORM
   );
 };
 
-// --- Gesture Controller ---
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const GestureController = ({ onGesture, onMove, onStatus, debugMode }: any) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  useEffect(() => {
-    let gestureRecognizer: GestureRecognizer;
-    let requestRef: number;
-
-    const setup = async () => {
-      onStatus("DOWNLOADING AI...");
-      try {
-        const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm");
-        gestureRecognizer = await GestureRecognizer.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task",
-            delegate: "GPU"
-          },
-          runningMode: "VIDEO",
-          numHands: 1
-        });
-        onStatus("REQUESTING CAMERA...");
-        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-          const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-            videoRef.current.play();
-            onStatus("AI READY: SHOW HAND");
-            predictWebcam();
-          }
-        } else {
-            onStatus("ERROR: CAMERA PERMISSION DENIED");
-        }
-      } catch (err: any) {
-        onStatus(`ERROR: ${err.message || 'MODEL FAILED'}`);
-      }
-    };
-
-    const predictWebcam = () => {
-      if (gestureRecognizer && videoRef.current && canvasRef.current) {
-        if (videoRef.current.videoWidth > 0) {
-            const results = gestureRecognizer.recognizeForVideo(videoRef.current, Date.now());
-            const ctx = canvasRef.current.getContext("2d");
-            if (ctx && debugMode) {
-                ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-                canvasRef.current.width = videoRef.current.videoWidth; canvasRef.current.height = videoRef.current.videoHeight;
-                if (results.landmarks) for (const landmarks of results.landmarks) {
-                        const drawingUtils = new DrawingUtils(ctx);
-                        drawingUtils.drawConnectors(landmarks, GestureRecognizer.HAND_CONNECTIONS, { color: "#FFD700", lineWidth: 2 });
-                        drawingUtils.drawLandmarks(landmarks, { color: "#FF0000", lineWidth: 1 });
-                }
-            } else if (ctx && !debugMode) ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-
-            if (results.gestures.length > 0) {
-              const name = results.gestures[0][0].categoryName; const score = results.gestures[0][0].score;
-              if (score > 0.4) {
-                 if (name === "Open_Palm") onGesture("CHAOS"); if (name === "Closed_Fist") onGesture("FORMED");
-                 if (debugMode) onStatus(`DETECTED: ${name}`);
-              }
-              if (results.landmarks.length > 0) {
-                const speed = (0.5 - results.landmarks[0][0].x) * 0.15;
-                onMove(Math.abs(speed) > 0.01 ? speed : 0);
-              }
-            } else { onMove(0); if (debugMode) onStatus("AI READY: NO HAND"); }
-        }
-        requestRef = requestAnimationFrame(predictWebcam);
-      }
-    };
-    setup();
-    return () => cancelAnimationFrame(requestRef);
-  }, [onGesture, onMove, onStatus, debugMode]);
-
-  return (
-    <>
-      <video ref={videoRef} style={{ opacity: debugMode ? 0.6 : 0, position: 'fixed', top: 0, right: 0, width: debugMode ? '320px' : '1px', zIndex: debugMode ? 100 : -1, pointerEvents: 'none', transform: 'scaleX(-1)' }} playsInline muted autoPlay />
-      <canvas ref={canvasRef} style={{ position: 'fixed', top: 0, right: 0, width: debugMode ? '320px' : '1px', height: debugMode ? 'auto' : '1px', zIndex: debugMode ? 101 : -1, pointerEvents: 'none', transform: 'scaleX(-1)' }} />
-    </>
-  );
-};
 
 // --- App Entry ---
 export default function GrandTreeApp() {
-  const [sceneState, setSceneState] = useState<'CHAOS' | 'FORMED'>('CHAOS');
-  const [rotationSpeed, setRotationSpeed] = useState(0);
-  const [aiStatus, setAiStatus] = useState("INITIALIZING...");
-  const [debugMode, setDebugMode] = useState(false);
+  // 现在用 continuous progress 来驱动组装，取代简单的离散 state
+  const [assemblyProgress, setAssemblyProgress] = useState<number>(0);
+  const [rotationSpeed] = useState(0);
 
   return (
     <div style={{ width: '100vw', height: '100vh', backgroundColor: '#000', position: 'relative', overflow: 'hidden' }}>
       <div style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, zIndex: 1 }}>
         <Canvas dpr={[1, 2]} gl={{ toneMapping: THREE.ReinhardToneMapping }} shadows>
-            <Experience sceneState={sceneState} rotationSpeed={rotationSpeed} />
+            <Experience assemblyProgress={assemblyProgress} setAssemblyProgress={setAssemblyProgress} rotationSpeed={rotationSpeed} />
         </Canvas>
       </div>
-      <GestureController onGesture={setSceneState} onMove={setRotationSpeed} onStatus={setAiStatus} debugMode={debugMode} />
 
-      {/* UI - Stats */}
-      <div style={{ position: 'absolute', bottom: '30px', left: '40px', color: '#888', zIndex: 10, fontFamily: 'sans-serif', userSelect: 'none' }}>
-        <div style={{ marginBottom: '15px' }}>
-          <p style={{ fontSize: '10px', letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '4px' }}>Memories</p>
-          <p style={{ fontSize: '24px', color: '#FFD700', fontWeight: 'bold', margin: 0 }}>
-            {CONFIG.counts.ornaments.toLocaleString()} <span style={{ fontSize: '10px', color: '#555', fontWeight: 'normal' }}>POLAROIDS</span>
-          </p>
-        </div>
-        <div>
-          <p style={{ fontSize: '10px', letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '4px' }}>Foliage</p>
-          <p style={{ fontSize: '24px', color: '#004225', fontWeight: 'bold', margin: 0 }}>
-            {(CONFIG.counts.foliage / 1000).toFixed(0)}K <span style={{ fontSize: '10px', color: '#555', fontWeight: 'normal' }}>EMERALD NEEDLES</span>
-          </p>
-        </div>
-      </div>
 
-      {/* UI - Buttons */}
-      <div style={{ position: 'absolute', bottom: '30px', right: '40px', zIndex: 10, display: 'flex', gap: '10px' }}>
-        <button onClick={() => setDebugMode(!debugMode)} style={{ padding: '12px 15px', backgroundColor: debugMode ? '#FFD700' : 'rgba(0,0,0,0.5)', border: '1px solid #FFD700', color: debugMode ? '#000' : '#FFD700', fontFamily: 'sans-serif', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', backdropFilter: 'blur(4px)' }}>
-           {debugMode ? 'HIDE DEBUG' : '🛠 DEBUG'}
-        </button>
-        <button onClick={() => setSceneState(s => s === 'CHAOS' ? 'FORMED' : 'CHAOS')} style={{ padding: '12px 30px', backgroundColor: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255, 215, 0, 0.5)', color: '#FFD700', fontFamily: 'serif', fontSize: '14px', fontWeight: 'bold', letterSpacing: '3px', textTransform: 'uppercase', cursor: 'pointer', backdropFilter: 'blur(4px)' }}>
-           {sceneState === 'CHAOS' ? 'Assemble Tree' : 'Disperse'}
-        </button>
+
+      {/* 居中文字：提示当前交互（居中） */}
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 12 }}>
+        <div style={{ color: 'rgba(255,255,255,0.85)', fontSize: 18, fontWeight: 600, padding: '8px 14px', background: 'rgba(0,0,0,0.35)', borderRadius: 8 }}>
+          test text
+        </div>
       </div>
 
       {/* UI - AI Status */}
-      <div style={{ position: 'absolute', top: '20px', left: '50%', transform: 'translateX(-50%)', color: aiStatus.includes('ERROR') ? '#FF0000' : 'rgba(255, 215, 0, 0.4)', fontSize: '10px', letterSpacing: '2px', zIndex: 10, background: 'rgba(0,0,0,0.5)', padding: '4px 8px', borderRadius: '4px' }}>
-        {aiStatus}
-      </div>
+
     </div>
   );
 }
