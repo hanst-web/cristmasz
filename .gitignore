@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# User photos and media (keep original example photos)
+public/photos/backup_*/
+public/bgm.mp3
+# Note: Original example photos (1-31.jpg, top.jpg) should be kept in repo
